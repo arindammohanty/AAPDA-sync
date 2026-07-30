@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [85.8245, 20.2961] }, "properties": { "id": "v1", "name": "Bhubaneswar Station Flooding", "severity": 8, "waterRisk": 0.9, "partySize": 5, "vulnerability": 1.8 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [85.8179, 20.2736] }, "properties": { "id": "v2", "name": "Old Town Temple Evac", "severity": 6, "waterRisk": 0.6, "partySize": 12, "vulnerability": 1.2 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [85.8093, 20.3015] }, "properties": { "id": "v3", "name": "Khandagiri Structural Collapse", "severity": 9, "waterRisk": 0.2, "partySize": 3, "vulnerability": 1.9 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [85.8315, 20.2882] }, "properties": { "id": "v4", "name": "Kalinga Stadium Medical Drop", "severity": 4, "waterRisk": 0.5, "partySize": 2, "vulnerability": 1.1 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [85.8601, 20.3200] }, "properties": { "id": "v5", "name": "Patia Submerged Vehicle", "severity": 7, "waterRisk": 1.0, "partySize": 1, "vulnerability": 1.5 } }
+  ]
+}
