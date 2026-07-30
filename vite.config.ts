@@ -46,6 +46,22 @@ export default defineConfig({
   optimizeDeps: {
   },
   build: {
-    chunkSizeWarningLimit: 3000
+    chunkSizeWarningLimit: 3000,
+    rollupOptions: {
+      output: {
+        chunkFileNames: (chunkInfo) => {
+          if (chunkInfo.name.includes('maplibre-gl-worker')) {
+            return 'assets/maplibre-gl-worker.mjs';
+          }
+          return 'assets/[name]-[hash].js';
+        },
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.includes('maplibre-gl-worker')) {
+            return 'assets/maplibre-gl-worker.[ext]';
+          }
+          return 'assets/[name]-[hash].[ext]';
+        }
+      }
+    }
   }
 });
