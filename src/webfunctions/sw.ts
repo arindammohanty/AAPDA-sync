@@ -3,7 +3,13 @@ import { registerRoute } from 'workbox-routing';
 import { CacheFirst } from 'workbox-strategies';
 import { RangeRequestsPlugin } from 'workbox-range-requests';
 
+import { clientsClaim } from 'workbox-core';
+
 declare let self: ServiceWorkerGlobalScope;
+
+// Force immediate activation of new service workers
+self.skipWaiting();
+clientsClaim();
 
 // This injects the assets compiled by Vite into the Workbox cache
 precacheAndRoute(self.__WB_MANIFEST || []);

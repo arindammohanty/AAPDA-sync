@@ -20,8 +20,7 @@ export const indexeddbProvider = new IndexeddbPersistence('aapdasync-mesh-db', y
 export const webrtcProvider = new WebrtcProvider('aapdasync-field-mesh-v1', ydoc, {
   signaling: [
     'wss://signaling.yjs.dev',
-    'wss://y-webrtc-signaling-eu.herokuapp.com',
-    'wss://y-webrtc-signaling-us.herokuapp.com',
+    // Fallback to local LAN signaling if running local dev server
     `wss://${window.location.host}/signaling`
   ]
 });
