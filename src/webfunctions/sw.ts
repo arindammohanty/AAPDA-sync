@@ -23,3 +23,27 @@ registerRoute(
 );
 
 // We explicitly DO NOT write a NetworkFirst fallback for general fetches to enforce absolute offline isolation.
+
+// COEP Bypass for Carto Map Tiles
+// Because the OPFS SQLite database requires SharedArrayBuffer (Cross-Origin Isolation),
+// Vercel forces strict COEP/COOP headers. External map tiles will be blocked unless they explicitly
+// send a CORP header. We intercept and inject it manually.
+registerRoute(
+  ({ url }) => url.origin.includes('cartocdn.com'),
+  async ({ request }) => {
+    try {
+      const response = await fetch(request);
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders
+      });
+    } catch (e) {
+      console.error('SW COEP Intercept Error:', e);
+      return new Response('', { status: 500 });
+    }
+  }
+);
