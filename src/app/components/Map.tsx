@@ -53,9 +53,19 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
     const initMap = async () => {
       try {
         const origin = window.location.origin;
+        const res = await fetch('/voyager-style.json');
+        const style = await res.json();
+
+        // Force absolute URLs for MapLibre strict validation
+        if (style.sprite && style.sprite.startsWith('/')) style.sprite = origin + style.sprite;
+        if (style.glyphs && style.glyphs.startsWith('/')) style.glyphs = origin + style.glyphs;
+        if (style.sources?.carto?.tiles?.[0]?.startsWith('/')) {
+          style.sources.carto.tiles[0] = origin + style.sources.carto.tiles[0];
+        }
+
         const mapOptions: any = {
           container: mapContainer.current,
-          style: '/voyager-style.json', 
+          style: style, 
           center: [85.8245, 20.2961], // Bhubaneshwar coordinates
           zoom: 13,
           maxZoom: 22,
