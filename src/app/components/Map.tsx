@@ -45,24 +45,31 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
-    const mapOptions: any = {
-      container: mapContainer.current,
-      style: '/voyager-style.json', // Proxied High-Contrast Basemap
-      center: [85.8245, 20.2961], // Bhubaneshwar coordinates
-      zoom: 13,
-      maxZoom: 22,
-      minZoom: 2,
-      keyboard: true,
-      clickTolerance: 15, // Solves laptop trackpad single-tap micro-drag issue
-      transformRequest: (url: string) => {
-        if (url.startsWith('/carto-proxy/') || url.startsWith('/carto-mvt-proxy/')) {
-          return { url: window.location.origin + url };
-        }
-        return { url };
-      }
-    };
+    const initMap = async () => {
+      try {
+        const res = await fetch('/voyager-style.json');
+        const style = await res.json();
+        const origin = window.location.origin;
 
-    map.current = new maplibregl.Map(mapOptions);
+        // Force absolute URLs for MapLibre strict validation
+        if (style.sprite && style.sprite.startsWith('/')) style.sprite = origin + style.sprite;
+        if (style.glyphs && style.glyphs.startsWith('/')) style.glyphs = origin + style.glyphs;
+        if (style.sources?.carto?.tiles?.[0]?.startsWith('/')) {
+          style.sources.carto.tiles[0] = origin + style.sources.carto.tiles[0];
+        }
+
+        const mapOptions: any = {
+          container: mapContainer.current,
+          style: style, 
+          center: [85.8245, 20.2961], // Bhubaneshwar coordinates
+          zoom: 13,
+          maxZoom: 22,
+          minZoom: 2,
+          keyboard: true,
+          clickTolerance: 15,
+        };
+
+        map.current = new maplibregl.Map(mapOptions);
 
     // 1. Setup Geolocation Control
     const geolocate = new maplibregl.GeolocateControl({
@@ -175,6 +182,11 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
+      // 6. Local Live Trail Layer
+      map.current!.addSource('local-trail', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
       map.current!.addLayer({
         id: 'local-trail-layer',
         type: 'line',
@@ -187,6 +199,12 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         }
       });
     });
+      } catch (err) {
+        console.error("Error initializing MapLibre:", err);
+      }
+    };
+    
+    initMap();
   }, [onUserLocationUpdate]); // added dep
 
   // Update Draw Layer Data
