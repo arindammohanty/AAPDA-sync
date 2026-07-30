@@ -57,7 +57,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
           minZoom: 2,
           keyboard: true,
           clickTolerance: 15,
-          transformRequest: (url: string, resourceType: string) => {
+          transformRequest: (url: string, _resourceType: string) => {
             // MapLibre Web Workers require absolute URLs for Vercel/Vite rewrites
             if (url.startsWith('/carto-proxy/') || url.startsWith('/carto-mvt-proxy/')) {
               return { url: origin + url };
