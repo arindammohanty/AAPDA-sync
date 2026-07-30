@@ -6,12 +6,12 @@
     "carto": {
       "type": "vector",
       "tiles": [
-        "https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt"
+        "/carto-mvt-proxy/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt"
       ]
     }
   },
-  "sprite": "https://tiles.basemaps.cartocdn.com/gl/voyager-gl-style/sprite",
-  "glyphs": "https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+  "sprite": "/carto-proxy/gl/voyager-gl-style/sprite",
+  "glyphs": "/carto-proxy/fonts/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",

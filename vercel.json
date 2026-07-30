@@ -13,5 +13,15 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/carto-proxy/:match*",
+      "destination": "https://tiles.basemaps.cartocdn.com/:match*"
+    },
+    {
+      "source": "/carto-mvt-proxy/:match*",
+      "destination": "https://tiles-a.basemaps.cartocdn.com/:match*"
+    }
   ]
 }
