@@ -383,8 +383,8 @@ export default function App() {
             </h1>
             
             <div className="space-y-4 text-sm font-medium text-gray-400">
-              <div className={`flex items-center gap-3 ${bootState === 'CHECKING_MAP' ? 'text-white' : bootState !== 'CHECKING_MAP' ? 'text-emerald-400' : ''}`}>
-                <span>{bootState !== 'CHECKING_MAP' ? '✓' : '•'}</span> Checking OPFS Storage
+              <div className={`flex items-center gap-3 ${bootState === 'CHECKING_MAP' ? 'text-white' : 'text-emerald-400'}`}>
+                <span>{bootState === 'CHECKING_MAP' ? '•' : '✓'}</span> Checking OPFS Storage
               </div>
               <div className={`flex items-center gap-3 ${bootState === 'LOADING_MAP' ? 'text-white animate-pulse' : (bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? 'text-emerald-400' : ''}`}>
                 <span>{(bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? '✓' : '•'}</span> Injecting Map Modules
