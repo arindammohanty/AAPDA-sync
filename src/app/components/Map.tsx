@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import type { Victim } from '../../webfunctions/math/triage';
 import type { Coordinate } from '../../webfunctions/math/pathfinding';
 import { SAFE_ZONES } from '../../webfunctions/math/safeZones';
+
+// MapLibre v4+ Vite Worker Fix
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 interface MapProps {
   victims?: (Victim & { coordinates: [number, number] })[];

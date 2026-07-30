@@ -44,7 +44,6 @@ export default defineConfig({
     })
   ],
   optimizeDeps: {
-    exclude: ['maplibre-gl']
   },
   build: {
     chunkSizeWarningLimit: 3000
