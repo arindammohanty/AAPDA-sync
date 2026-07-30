@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'; // Force Vite to bundle the worker
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
+
+// Explicitly set the worker URL to the Vite-resolved asset path
+// This is critical for Vite dev mode (npm run dev) where default relative lookups fail
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import type { Victim } from '../../webfunctions/math/triage';
 import type { Coordinate } from '../../webfunctions/math/pathfinding';
 import { SAFE_ZONES } from '../../webfunctions/math/safeZones';
