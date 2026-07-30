@@ -12,7 +12,7 @@ declare let self: ServiceWorkerGlobalScope;
 clientsClaim();
 
 // AGGRESSIVE CACHE BUSTING - Nuke all caches on activate to ensure the buggy bundle is dropped
-self.addEventListener('activate', (event: any) => {
+(self as any).addEventListener('activate', (event: any) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
@@ -23,8 +23,8 @@ self.addEventListener('activate', (event: any) => {
       );
     }).then(() => {
       // Force all clients to reload once to pick up the fresh network assets
-      return self.clients.matchAll({ type: 'window' }).then((windowClients) => {
-        windowClients.forEach((windowClient) => {
+      return (self as any).clients.matchAll({ type: 'window' }).then((windowClients: any) => {
+        windowClients.forEach((windowClient: any) => {
           windowClient.navigate(windowClient.url);
         });
       });
