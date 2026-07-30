@@ -54,7 +54,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
       minZoom: 2,
       keyboard: true,
       clickTolerance: 15, // Solves laptop trackpad single-tap micro-drag issue
-      transformRequest: (url: string, resourceType: string) => {
+      transformRequest: (url: string) => {
         if (url.startsWith('/carto-proxy/') || url.startsWith('/carto-mvt-proxy/')) {
           return { url: window.location.origin + url };
         }
