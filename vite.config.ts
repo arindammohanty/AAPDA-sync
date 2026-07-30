@@ -22,6 +22,20 @@ export default defineConfig({
       }
     }
   },
+  preview: {
+    proxy: {
+      '/carto-proxy': {
+        target: 'https://tiles.basemaps.cartocdn.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/carto-proxy/, '')
+      },
+      '/carto-mvt-proxy': {
+        target: 'https://tiles-a.basemaps.cartocdn.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/carto-mvt-proxy/, '')
+      }
+    }
+  },
   plugins: [
     react(),
     basicSsl(),

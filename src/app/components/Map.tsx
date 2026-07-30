@@ -47,26 +47,27 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
 
     const initMap = async () => {
       try {
-        const res = await fetch('/voyager-style.json');
-        const style = await res.json();
         const origin = window.location.origin;
-
-        // Force absolute URLs for MapLibre strict validation
-        if (style.sprite && style.sprite.startsWith('/')) style.sprite = origin + style.sprite;
-        if (style.glyphs && style.glyphs.startsWith('/')) style.glyphs = origin + style.glyphs;
-        if (style.sources?.carto?.tiles?.[0]?.startsWith('/')) {
-          style.sources.carto.tiles[0] = origin + style.sources.carto.tiles[0];
-        }
-
         const mapOptions: any = {
           container: mapContainer.current,
-          style: style, 
+          style: '/voyager-style.json', 
           center: [85.8245, 20.2961], // Bhubaneshwar coordinates
           zoom: 13,
           maxZoom: 22,
           minZoom: 2,
           keyboard: true,
           clickTolerance: 15,
+          transformRequest: (url: string, resourceType: string) => {
+            // MapLibre Web Workers require absolute URLs for Vercel/Vite rewrites
+            if (url.startsWith('/carto-proxy/') || url.startsWith('/carto-mvt-proxy/')) {
+              return { url: origin + url };
+            }
+            // For relative assets from public/ like sprites
+            if (url.startsWith('/') && !url.startsWith('http')) {
+              return { url: origin + url };
+            }
+            return { url };
+          }
         };
 
         map.current = new maplibregl.Map(mapOptions);
