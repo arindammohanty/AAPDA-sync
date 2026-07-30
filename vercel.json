@@ -16,12 +16,12 @@
   ],
   "rewrites": [
     {
-      "source": "/carto-proxy/:match*",
-      "destination": "https://tiles.basemaps.cartocdn.com/:match*"
+      "source": "/carto-proxy/(.*)",
+      "destination": "https://tiles.basemaps.cartocdn.com/$1"
     },
     {
-      "source": "/carto-mvt-proxy/:match*",
-      "destination": "https://tiles-a.basemaps.cartocdn.com/:match*"
+      "source": "/carto-mvt-proxy/(.*)",
+      "destination": "https://tiles-a.basemaps.cartocdn.com/$1"
     }
   ]
 }
