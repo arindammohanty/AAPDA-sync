@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'; // Force Vite to bundle the worker
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Protocol } from 'pmtiles';
 import type { Victim } from '../../webfunctions/math/triage';
