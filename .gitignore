@@ -27,3 +27,5 @@ dist-ssr
 *Plan*.md
 *Walkthrough*.md
 *task*.md
+.vercel
+.env*

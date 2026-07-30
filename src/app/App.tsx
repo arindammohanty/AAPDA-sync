@@ -132,8 +132,14 @@ export default function App() {
     };
     
     const updateAnomaliesFromMesh = () => setAnomalies(sharedAnomalies.toArray());
-    const updateAssetsFromMesh = () => setAssets(sharedAssets.toArray());
-    const updateBreadcrumbsFromMesh = () => setBreadcrumbs(sharedBreadcrumbs.toArray());
+    const updateAssetsFromMesh = () => {
+      const arr = sharedAssets.toArray() as { id: string; name: string }[];
+      setAssets(arr);
+    };
+    const updateBreadcrumbsFromMesh = () => {
+      const arr = sharedBreadcrumbs.toArray() as Coordinate[][];
+      setBreadcrumbs(arr);
+    };
 
     sharedVictims.observe(updateReactStateFromMesh);
     sharedAnomalies.observe(updateAnomaliesFromMesh);
@@ -380,11 +386,11 @@ export default function App() {
               <div className={`flex items-center gap-3 ${bootState === 'CHECKING_MAP' ? 'text-white' : bootState !== 'CHECKING_MAP' ? 'text-emerald-400' : ''}`}>
                 <span>{bootState !== 'CHECKING_MAP' ? '✓' : '•'}</span> Checking OPFS Storage
               </div>
-              <div className={`flex items-center gap-3 ${bootState === 'LOADING_MAP' ? 'text-white animate-pulse' : (bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID' || bootState === 'READY') ? 'text-emerald-400' : ''}`}>
-                <span>{(bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID' || bootState === 'READY') ? '✓' : '•'}</span> Injecting Map Modules
+              <div className={`flex items-center gap-3 ${bootState === 'LOADING_MAP' ? 'text-white animate-pulse' : (bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? 'text-emerald-400' : ''}`}>
+                <span>{(bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? '✓' : '•'}</span> Injecting Map Modules
               </div>
-              <div className={`flex items-center gap-3 ${bootState === 'CHECKING_SERVER' ? 'text-white animate-pulse' : bootState === 'READY' ? 'text-emerald-400' : ''}`}>
-                <span>{bootState === 'READY' ? '✓' : bootState === 'PROMPT_OFF_GRID' ? '✗' : '•'}</span> Handshaking WebRTC Mesh
+              <div className={`flex items-center gap-3 ${bootState === 'CHECKING_SERVER' ? 'text-white animate-pulse' : ''}`}>
+                <span>{bootState === 'PROMPT_OFF_GRID' ? '✗' : '•'}</span> Handshaking WebRTC Mesh
               </div>
             </div>
 
