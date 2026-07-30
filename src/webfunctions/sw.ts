@@ -11,6 +11,27 @@ declare let self: ServiceWorkerGlobalScope;
 (self as any).skipWaiting();
 clientsClaim();
 
+// AGGRESSIVE CACHE BUSTING - Nuke all caches on activate to ensure the buggy bundle is dropped
+self.addEventListener('activate', (event: any) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          console.log(`[SW] Deleting old cache: ${cacheName}`);
+          return caches.delete(cacheName);
+        })
+      );
+    }).then(() => {
+      // Force all clients to reload once to pick up the fresh network assets
+      return self.clients.matchAll({ type: 'window' }).then((windowClients) => {
+        windowClients.forEach((windowClient) => {
+          windowClient.navigate(windowClient.url);
+        });
+      });
+    })
+  );
+});
+
 // This injects the assets compiled by Vite into the Workbox cache
 precacheAndRoute(self.__WB_MANIFEST || []);
 
