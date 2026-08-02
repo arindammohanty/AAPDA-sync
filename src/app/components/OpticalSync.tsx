@@ -42,7 +42,7 @@ export default function OpticalSync({ payloadBuffer, onPayloadReceived }: Optica
     
     const interval = setInterval(() => {
       setCurrentFrameIndex((prev) => (prev + 1) % chunks.length);
-    }, 100); // 10 FPS
+    }, 200); // 5 FPS
     
     return () => clearInterval(interval);
   }, [mode, chunks]);
@@ -135,10 +135,10 @@ export default function OpticalSync({ payloadBuffer, onPayloadReceived }: Optica
           {chunks.length > 0 ? (
             <>
               <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-100">
-                <QRCodeSVG value={chunks[currentFrameIndex]} size={180} />
+                <QRCodeSVG value={chunks[currentFrameIndex]} size={140} />
               </div>
               <div className="mt-8 flex flex-col items-center">
-                <div className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">10 FPS Mesh Sync Active</div>
+                <div className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">5 FPS Mesh Sync Active</div>
                 <div className="text-sm font-mono text-gray-600 bg-gray-50 px-4 py-1.5 rounded-md border border-gray-200">
                   Frame {(currentFrameIndex + 1).toString().padStart(2, '0')} <span className="text-gray-400 mx-2">/</span> {chunks.length.toString().padStart(2, '0')}
                 </div>
