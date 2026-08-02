@@ -17,6 +17,7 @@
     "@turf/simplify": "^7.3.5",
     "@types/geojson": "^7946.0.16",
     "@types/ngeohash": "^0.6.8",
+    "@vercel/analytics": "^2.0.1",
     "ggwave": "^0.4.0",
     "html5-qrcode": "^2.3.8",
     "localforage": "^1.10.0",
