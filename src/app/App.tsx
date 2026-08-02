@@ -63,6 +63,7 @@ export default function App() {
   const pathWorker = useRef<Worker | null>(null);
   const sqliteWorkerRef = useRef<Worker | null>(null);
   const routingRequestRef = useRef<any>(null);
+  const hasBootedRef = useRef(false);
 
   const notify = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -91,9 +92,9 @@ export default function App() {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
           });
       } else if (type === 'CHUNK_LOADED') {
-        // Only notify if it's a significant chunk (e.g. backbone) to avoid spamming on tile loads
-        if (payload.nodeCount > 500) {
-          notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
+        if (!hasBootedRef.current) {
+          hasBootedRef.current = true;
+          notify(`Map backbone loaded.`, 'success');
           setBootState('CHECKING_SERVER');
           setTimeout(() => {
             setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
