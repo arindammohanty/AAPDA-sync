@@ -45,6 +45,7 @@ export default function App() {
   const [isMeshSynced, setIsMeshSynced] = useState(false);
   const [isOffGridModalOpen, setIsOffGridModalOpen] = useState(false);
   const [bootState, setBootState] = useState<'CHECKING_MAP' | 'LOADING_MAP' | 'CHECKING_SERVER' | 'PROMPT_OFF_GRID' | 'READY'>('CHECKING_MAP');
+  const [isRouting, setIsRouting] = useState(false);
   
   // Custom Targeting State
   const [isTargetingMode, setIsTargetingMode] = useState(false);
@@ -126,6 +127,7 @@ export default function App() {
         setActiveRoute(combinedPath);
         setRouteStats({ insertion: insertionRoute, extraction: extractionRoute, safeZone });
         
+        setIsRouting(false);
         // Auto-close sidebar on mobile after selecting a route so user can see the map
         if (window.innerWidth < 768) {
           setIsSidebarOpen(false);
@@ -134,6 +136,7 @@ export default function App() {
         notify('Routing failed. Graph isolated.', 'warning');
         setActiveRoute([]);
         setRouteStats(null);
+        setIsRouting(false);
       }
     };
 
@@ -192,6 +195,7 @@ export default function App() {
     setActiveRoutingRequest(null);
     setActiveRoute([]);
     setRouteStats(null);
+    setIsRouting(false);
   }, [selectedVictimId]);
 
   useEffect(() => {
@@ -231,6 +235,7 @@ export default function App() {
     } else if (!activeRoutingRequest) {
       setActiveRoute([]);
       setRouteStats(null);
+      setIsRouting(false);
     }
   }, [activeRoutingRequest, victims, userLocation, anomalies, breadcrumbs, drawnFeatures]);
 
@@ -694,11 +699,16 @@ export default function App() {
             onSelectVictim={setSelectedVictimId}
             onDeleteVictim={handleDeleteVictim}
             onUpdateStatus={handleUpdateStatus}
-            onPlotRoute={(victimId, resources) => setActiveRoutingRequest({ victimId, resources })}
+            onPlotRoute={(victimId, resources) => {
+              setRouteStats(null);
+              setIsRouting(true);
+              setActiveRoutingRequest({ victimId, resources });
+            }}
             routeStats={routeStats}
             anomalies={anomalies}
             assets={assets}
             onAddAsset={handleAddAsset}
+            isRouting={isRouting}
           />
           
           <div className="p-6 bg-gray-50 border-t border-gray-100 pb-8 md:pb-6">

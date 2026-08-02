@@ -29,7 +29,7 @@ async function initDb() {
     sqlite3Ref = sqlite3;
     
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v4.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v5.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
