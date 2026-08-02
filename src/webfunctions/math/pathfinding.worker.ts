@@ -21,7 +21,7 @@ self.onmessage = (e: MessageEvent) => {
       return;
     }
 
-    const { start, target, anomalies = [], breadcrumbs = [] } = payload as { start: Coordinate, target: Coordinate, anomalies?: { coordinates: Coordinate, type: string }[], breadcrumbs?: Coordinate[][] };
+    const { start, target, anomalies = [], breadcrumbs = [], drawnFeatures = { type: 'FeatureCollection', features: [] }, resources = [] } = payload as any;
     
     // Inject any crowd-sourced mesh trails dynamically into the graph before routing
     if (breadcrumbs.length > 0) {
@@ -29,7 +29,7 @@ self.onmessage = (e: MessageEvent) => {
     }
     
     // 1. Calculate Insertion Route (Start -> Target)
-    const insertionRoute = graph.findPath(start, target, anomalies);
+    const insertionRoute = graph.findPath(start, target, anomalies, drawnFeatures, resources);
     
     if (!insertionRoute) {
       self.postMessage({ type: 'ROUTE_ERROR', payload: 'No insertion path found' });
@@ -41,12 +41,22 @@ self.onmessage = (e: MessageEvent) => {
     let bestSafeZone = null;
     let minDistance = Infinity;
 
-    for (const safeZone of SAFE_ZONES) {
+    const dynamicShelters = drawnFeatures.features
+      .filter((f: any) => f.geometry.type === 'Point' && f.properties?.type === 'shelter')
+      .map((f: any) => ({
+        id: f.properties?.id || Math.random().toString(),
+        name: f.properties?.name || 'Field Shelter',
+        coordinates: f.geometry.coordinates as Coordinate
+      }));
+
+    const allSafeZones = [...SAFE_ZONES, ...dynamicShelters];
+
+    for (const safeZone of allSafeZones) {
       // Very basic optimization: skip A* if haversine distance is already much worse than our best path
       const directDist = getDistance(target, safeZone.coordinates);
       if (bestExtractionRoute && directDist > minDistance * 1.5) continue;
 
-      const route = graph.findPath(target, safeZone.coordinates, anomalies);
+      const route = graph.findPath(target, safeZone.coordinates, anomalies, drawnFeatures, resources);
       if (route && route.totalDistance < minDistance) {
         minDistance = route.totalDistance;
         bestExtractionRoute = route;

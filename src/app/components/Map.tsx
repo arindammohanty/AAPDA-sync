@@ -18,24 +18,37 @@ interface MapProps {
   localTrail?: Coordinate[];
   selectedVictimId?: string | null;
   activeRoute?: Coordinate[];
+  userLocation?: Coordinate | null;
+  isGeolocationFailed?: boolean;
   onUserLocationUpdate?: (coord: Coordinate) => void;
+  onGeolocationError?: () => void;
   onMapClick?: (coords: [number, number]) => void;
   onDeleteAnomaly?: (id: string) => void;
   onBroadcastTrail?: () => void;
+  drawnFeatures?: GeoJSON.FeatureCollection;
+  onUpdateDrawnFeatures?: (features: GeoJSON.FeatureCollection) => void;
+  onEnableManualLocation?: () => void;
+  isManualLocation?: boolean;
 }
 
-export default function Map({ victims = [], anomalies = [], breadcrumbs = [], localTrail = [], selectedVictimId = null, activeRoute = [], onUserLocationUpdate, onMapClick, onDeleteAnomaly, onBroadcastTrail }: MapProps) {
+export default function Map({ victims = [], anomalies = [], breadcrumbs = [], localTrail = [], selectedVictimId = null, activeRoute = [], userLocation = null, isGeolocationFailed = false, onUserLocationUpdate, onGeolocationError, onMapClick, onDeleteAnomaly, onBroadcastTrail, drawnFeatures = { type: 'FeatureCollection', features: [] }, onUpdateDrawnFeatures, onEnableManualLocation, isManualLocation = false }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: maplibregl.Marker }>({});
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
 
   // Drawing State
-  const [drawMode, setDrawMode] = useState<'none' | 'flood' | 'risk'>('none');
-  const [drawnFeatures, setDrawnFeatures] = useState<GeoJSON.FeatureCollection>({
-    type: 'FeatureCollection',
-    features: []
-  });
+  const [drawMode, setDrawMode] = useState<'none' | 'flood' | 'risk' | 'shelter'>('none');
   const currentPolygonCoords = useRef<[number, number][]>([]);
+
+  // Stable Refs for Callbacks and State
+  const callbacksRef = useRef({ onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate: (coords: [number, number]) => {} });
+  const drawModeRef = useRef(drawMode);
+  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>();
+
+  useEffect(() => {
+    drawModeRef.current = drawMode;
+  }, [drawMode]);
 
   // Register PMTiles once
   useEffect(() => {
@@ -96,27 +109,72 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
     map.current.addControl(geolocate, 'bottom-right');
 
     geolocate.on('geolocate', (e: any) => {
-      if (onUserLocationUpdate) {
-        onUserLocationUpdate([e.coords.longitude, e.coords.latitude]);
+      if (callbacksRef.current.onUserLocationUpdate) {
+        callbacksRef.current.onUserLocationUpdate([e.coords.longitude, e.coords.latitude]);
       }
     });
 
     geolocate.on('error', (e: any) => {
-      console.warn('Geolocation failed (laptop/permissions). Using fallback location.', e);
-      // Fallback: center of Bhubaneshwar
-      const fallbackCoords: [number, number] = [85.8245, 20.2961];
-      if (onUserLocationUpdate) {
-        onUserLocationUpdate(fallbackCoords);
+      console.warn('Geolocation failed (laptop/permissions).');
+      if (callbacksRef.current.onGeolocationError) {
+        callbacksRef.current.onGeolocationError();
       }
-      map.current?.flyTo({ center: fallbackCoords, zoom: 12 });
     });
+    
+    const clickHandler = (e: maplibregl.MapMouseEvent) => {
+      const currentDrawMode = drawModeRef.current;
+      const mapClick = callbacksRef.current.onMapClick;
+      const addCoord = callbacksRef.current.addCoordinate;
+
+      if (currentDrawMode === 'none' && !mapClick) return;
+
+      const coords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      if (mapClick) {
+        mapClick(coords);
+      }
+      if (currentDrawMode !== 'none') {
+        addCoord(coords);
+      }
+    };
+    
+    map.current.on('click', clickHandler);
+    
+    keyHandlerRef.current = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      
+      if (e.key === ' ' || e.key === 'Enter') {
+        const currentDrawMode = drawModeRef.current;
+        const mapClick = callbacksRef.current.onMapClick;
+        const addCoord = callbacksRef.current.addCoordinate;
+        
+        if (currentDrawMode === 'none' && !mapClick) return;
+        
+        e.preventDefault();
+        if (map.current) {
+          const center = map.current.getCenter();
+          const coords: [number, number] = [center.lng, center.lat];
+          
+          if (mapClick) {
+            mapClick(coords);
+          }
+          if (currentDrawMode !== 'none') {
+            addCoord(coords);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', keyHandlerRef.current);
 
     map.current.on('load', () => {
       // Auto-trigger geolocation once loaded
       setTimeout(() => geolocate.trigger(), 500);
+      setIsMapLoaded(true);
+
+      if (!map.current) return;
 
       // 1. Drawing Data Source
-      map.current!.addSource('draw-data', {
+      if (!map.current.getSource('draw-data')) {
+        map.current.addSource('draw-data', {
         type: 'geojson',
         data: drawnFeatures
       });
@@ -160,8 +218,11 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         }
       });
 
+      }
+
       // 4. Active A* Route Layer
-      map.current!.addSource('active-route', {
+      if (!map.current.getSource('active-route')) {
+        map.current.addSource('active-route', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
@@ -176,8 +237,11 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         }
       });
 
+      }
+
       // 5. Mesh Breadcrumbs Layer
-      map.current!.addSource('mesh-breadcrumbs', {
+      if (!map.current.getSource('mesh-breadcrumbs')) {
+        map.current.addSource('mesh-breadcrumbs', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
@@ -193,13 +257,11 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         }
       });
 
+      }
+
       // 6. Local Live Trail Layer
-      map.current!.addSource('local-trail', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
-      });
-      // 6. Local Live Trail Layer
-      map.current!.addSource('local-trail', {
+      if (!map.current.getSource('local-trail')) {
+        map.current.addSource('local-trail', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
@@ -214,6 +276,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
           'line-opacity': 0.9
         }
       });
+      }
     });
       } catch (err) {
         console.error("Error initializing MapLibre:", err);
@@ -221,42 +284,53 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
     };
     
     initMap();
-  }, [onUserLocationUpdate]); // added dep
+
+    return () => {
+      if (map.current) {
+        if (keyHandlerRef.current) window.removeEventListener('keydown', keyHandlerRef.current);
+        map.current.remove();
+        map.current = null;
+      }
+    };
+  }, []); // Strictly mount only
 
   // Update Draw Layer Data
   useEffect(() => {
-    if (!map.current || !map.current.getSource('draw-data')) return;
-    (map.current.getSource('draw-data') as maplibregl.GeoJSONSource).setData(drawnFeatures);
-  }, [drawnFeatures]);
+    if (!map.current || !isMapLoaded) return;
+    const source = map.current.getSource('draw-data') as maplibregl.GeoJSONSource;
+    if (source) source.setData(drawnFeatures);
+  }, [drawnFeatures, isMapLoaded]);
 
   // Handle Mode Change Cleanup
   useEffect(() => {
     if (drawMode !== 'flood') {
       // Solidify active polygon
-      setDrawnFeatures(prev => {
-        const features = prev.features.map(f => {
+      if (onUpdateDrawnFeatures) {
+        const features = drawnFeatures.features.map(f => {
           if (f.properties?.id === 'active-poly') {
-            f.properties.id = 'final-poly';
+            f.properties.id = Math.random().toString();
           }
           return f;
         });
-        return { ...prev, features };
-      });
+        onUpdateDrawnFeatures({ ...drawnFeatures, features });
+      }
       currentPolygonCoords.current = [];
     }
-  }, [drawMode]);
+  }, [drawMode]); // Excluded drawnFeatures/onUpdateDrawnFeatures to avoid cyclic triggers
 
   // Handle Drawing Inputs (Mouse, Touch, Keyboard)
   const addCoordinate = useCallback((coords: [number, number]) => {
-    if (drawMode === 'risk') {
-      setDrawnFeatures(prev => ({
-        ...prev,
-        features: [...prev.features, {
-          type: 'Feature',
-          properties: { type: 'risk' },
-          geometry: { type: 'Point', coordinates: coords }
-        }]
-      }));
+    if (drawMode === 'risk' || drawMode === 'shelter') {
+      if (onUpdateDrawnFeatures) {
+        onUpdateDrawnFeatures({
+          ...drawnFeatures,
+          features: [...drawnFeatures.features, {
+            type: 'Feature',
+            properties: { type: drawMode, id: Math.random().toString() },
+            geometry: { type: 'Point', coordinates: coords }
+          }]
+        });
+      }
       setDrawMode('none');
     } else if (drawMode === 'flood') {
       currentPolygonCoords.current = [...currentPolygonCoords.current, coords];
@@ -273,57 +347,21 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         }
       };
 
-      setDrawnFeatures(prev => {
-        const features = prev.features.filter(f => f.properties?.id !== 'active-poly');
-        return { ...prev, features: [...features, newPoly] };
-      });
+      if (onUpdateDrawnFeatures) {
+        const features = drawnFeatures.features.filter(f => f.properties?.id !== 'active-poly');
+        onUpdateDrawnFeatures({ ...drawnFeatures, features: [...features, newPoly] });
+      }
     }
-  }, [drawMode]);
+  }, [drawMode, drawnFeatures, onUpdateDrawnFeatures]);
 
+  // Keep callback refs updated for the map handlers
   useEffect(() => {
-    if (!map.current) return;
-
-    const clickHandler = (e: maplibregl.MapMouseEvent) => {
-      if (drawMode === 'none' && !onMapClick) return;
-
-      const coords: [number, number] = [e.lngLat.lng, e.lngLat.lat];
-      if (onMapClick) {
-        onMapClick(coords);
-      }
-      if (drawMode !== 'none') {
-        addCoordinate(coords);
-      }
-    };
-
-    const keyHandler = (e: KeyboardEvent) => {
-      if (e.key === ' ' || e.key === 'Enter') {
-        if (drawMode === 'none' && !onMapClick) return;
-        
-        e.preventDefault();
-        const center = map.current!.getCenter();
-        const coords: [number, number] = [center.lng, center.lat];
-        
-        if (onMapClick) {
-          onMapClick(coords);
-        }
-        if (drawMode !== 'none') {
-          addCoordinate(coords);
-        }
-      }
-    };
-
-    map.current.on('click', clickHandler);
-    window.addEventListener('keydown', keyHandler);
-
-    return () => {
-      map.current?.off('click', clickHandler);
-      window.removeEventListener('keydown', keyHandler);
-    };
-  }, [drawMode, addCoordinate, onMapClick]);
+    callbacksRef.current = { onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate };
+  }, [onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate]);
 
   // Update Markers when victims change
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !isMapLoaded) return;
 
     Object.values(markersRef.current).forEach(marker => marker.remove());
     markersRef.current = {};
@@ -355,6 +393,20 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
       markersRef.current[sz.id] = marker;
     });
 
+    // Render Dynamic Shelters (Drawn)
+    drawnFeatures.features.filter(f => f.geometry.type === 'Point' && f.properties?.type === 'shelter').forEach(f => {
+      const el = document.createElement('div');
+      el.className = 'w-6 h-6 bg-green-500 border-[2px] border-white rounded shadow-md flex items-center justify-center';
+      el.innerHTML = '<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>';
+      el.title = 'Dynamic Rescue Shelter';
+      
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat(f.geometry.coordinates as [number, number])
+        .addTo(map.current!);
+        
+      markersRef.current[f.properties?.id || Math.random().toString()] = marker;
+    });
+
     // 3. Render Anomalies
     anomalies.forEach(anomaly => {
       const el = document.createElement('div');
@@ -373,7 +425,19 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
         
       markersRef.current[anomaly.id] = marker;
     });
-  }, [victims, anomalies, onDeleteAnomaly]);
+
+    // 4. Render Manual User Location
+    if (isManualLocation && userLocation) {
+      const el = document.createElement('div');
+      el.className = 'w-5 h-5 bg-blue-600 border-[3px] border-white rounded-full shadow-lg';
+      
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat(userLocation)
+        .addTo(map.current!);
+        
+      markersRef.current['manual-location'] = marker;
+    }
+  }, [victims, anomalies, onDeleteAnomaly, isGeolocationFailed, userLocation, isManualLocation, drawnFeatures]);
 
   // Fly to selected victim
   useEffect(() => {
@@ -392,51 +456,59 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
 
   // Update Route Trace
   useEffect(() => {
-    if (!map.current || !map.current.getSource('active-route')) return;
+    if (!map.current || !isMapLoaded) return;
     const source = map.current.getSource('active-route') as maplibregl.GeoJSONSource;
-    if (activeRoute.length > 0) {
-      source.setData({
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: activeRoute }
-        }]
-      });
-    } else {
-      source.setData({ type: 'FeatureCollection', features: [] });
+    if (source) {
+      if (activeRoute.length > 0) {
+        source.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: activeRoute }
+          }]
+        });
+      } else {
+        source.setData({ type: 'FeatureCollection', features: [] });
+      }
     }
-  }, [activeRoute]);
+  }, [activeRoute, isMapLoaded]);
 
   // Update Breadcrumbs & Local Trail
   useEffect(() => {
-    if (!map.current) return;
+    if (!map.current || !isMapLoaded) return;
     const breadcrumbSource = map.current.getSource('mesh-breadcrumbs') as maplibregl.GeoJSONSource;
-    if (breadcrumbSource && breadcrumbs.length > 0) {
-      breadcrumbSource.setData({
-        type: 'FeatureCollection',
-        features: breadcrumbs.map((trail, i) => ({
-          type: 'Feature',
-          properties: { id: i },
-          geometry: { type: 'LineString', coordinates: trail }
-        }))
-      });
+    if (breadcrumbSource) {
+      if (breadcrumbs.length > 0) {
+        breadcrumbSource.setData({
+          type: 'FeatureCollection',
+          features: breadcrumbs.map((trail, i) => ({
+            type: 'Feature',
+            properties: { id: i },
+            geometry: { type: 'LineString', coordinates: trail }
+          }))
+        });
+      } else {
+        breadcrumbSource.setData({ type: 'FeatureCollection', features: [] });
+      }
     }
 
     const localSource = map.current.getSource('local-trail') as maplibregl.GeoJSONSource;
-    if (localSource && localTrail.length > 1) {
-      localSource.setData({
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: localTrail }
-        }]
-      });
-    } else if (localSource) {
-      localSource.setData({ type: 'FeatureCollection', features: [] });
+    if (localSource) {
+      if (localTrail.length > 1) {
+        localSource.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: localTrail }
+          }]
+        });
+      } else {
+        localSource.setData({ type: 'FeatureCollection', features: [] });
+      }
     }
-  }, [breadcrumbs, localTrail]);
+  }, [breadcrumbs, localTrail, isMapLoaded]);
 
   return (
     <div className="relative w-full h-full">
@@ -458,6 +530,23 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
           onClick={() => setDrawMode(drawMode === 'risk' ? 'none' : 'risk')}
         >
           Mark Rescue Risk
+        </button>
+        <button 
+          tabIndex={3}
+          className={`min-h-[48px] min-w-[140px] px-5 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all focus:ring-4 focus:ring-green-300 outline-none ${drawMode === 'shelter' ? 'bg-green-600 text-white scale-105 border-2 border-white' : 'bg-white text-gray-800 hover:bg-gray-50'}`}
+          onClick={() => setDrawMode(drawMode === 'shelter' ? 'none' : 'shelter')}
+        >
+          Mark Rescue Shelter
+        </button>
+        <button 
+          tabIndex={4}
+          className={`min-h-[48px] min-w-[140px] px-5 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all focus:ring-4 focus:ring-blue-300 outline-none bg-white text-gray-800 hover:bg-gray-50`}
+          onClick={(e) => {
+            e.currentTarget.blur();
+            if (onEnableManualLocation) onEnableManualLocation();
+          }}
+        >
+          Set Manual GPS
         </button>
 
         {localTrail.length > 1 && (

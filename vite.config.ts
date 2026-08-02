@@ -44,8 +44,9 @@ export default defineConfig({
       srcDir: 'src/webfunctions',
       filename: 'sw.ts',
       injectManifest: {
-        // Enforce strict offline caching of all UI assets
-        globPatterns: ['**/*.{html,js,css,wasm,png,svg}'],
+        // Enforce strict offline caching of all UI and Map assets
+        globPatterns: ['**/*.{html,js,css,wasm,png,svg,json,geojson}'],
+        maximumFileSizeToCacheInBytes: 50 * 1024 * 1024 // 50MB to allow massive map chunks
       },
       manifest: {
         name: 'AapdaSync Response Node',

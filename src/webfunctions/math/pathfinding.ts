@@ -37,6 +37,19 @@ export interface RouteStats {
   floodRiskWarnings: number;
 }
 
+export function isPointInPolygon(point: Coordinate, polygon: Coordinate[][]): boolean {
+  const x = point[0], y = point[1];
+  let inside = false;
+  if (!polygon[0]) return false;
+  for (let i = 0, j = polygon[0].length - 1; i < polygon[0].length; j = i++) {
+    const xi = polygon[0][i][0], yi = polygon[0][i][1];
+    const xj = polygon[0][j][0], yj = polygon[0][j][1];
+    const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
 export class PathGraph {
   adjacencyList: Map<string, { node: Coordinate, weight: number, isFloodRisk: boolean }[]> = new Map();
   visitedEdges: Set<string> = new Set(); // Micro-Goal: Visited route memory cache
@@ -67,12 +80,8 @@ export class PathGraph {
     const distance = getDistance(coord1, coord2);
     let timeCostSeconds = distance / speedLimitMs;
     
-    // Elevation / Flood Risk Heuristic
-    const avgElevation = (getElevation(coord1) + getElevation(coord2)) / 2;
-    const isFloodRisk = avgElevation < 12.0; // Sub-12m is considered severe flood risk in this coastal sim
-    if (isFloodRisk) {
-      timeCostSeconds *= 5.0; // Heavy penalty (slower traversal) in flooded/low-lying areas
-    }
+    // Elevation / Flood Risk Heuristic (Synthetic removed for real roads)
+    const isFloodRisk = false; 
 
     if (!this.adjacencyList.get(key1)?.some(e => e.node.join(',') === key2)) {
       this.adjacencyList.get(key1)!.push({ node: coord2, weight: timeCostSeconds, isFloodRisk });
@@ -117,7 +126,7 @@ export class PathGraph {
   }
 
   // OSPF / Dijkstra's Search Algorithm - Dynamic Link-State Routing
-  findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = []): RouteStats | null {
+  findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = [], drawnFeatures: FeatureCollection = { type: 'FeatureCollection', features: [] }, resources: string[] = []): RouteStats | null {
     const start = this.getClosestNode(startRaw);
     const end = this.getClosestNode(endRaw);
 
@@ -132,10 +141,10 @@ export class PathGraph {
     const gScore = new Map<string, number>();
     gScore.set(startKey, 0);
 
-    // OSPF/Dijkstra: We rely purely on the dynamic link-state cost rather than a distance heuristic.
-    // The fScore is now strictly equal to the actual traversal time (gScore).
+    // OSPF/Dijkstra fallback removed. Using A* heuristic for efficient routing.
+    // The fScore incorporates the actual traversal time (gScore) and an optimistic remaining time (hScore).
     const fScore = new Map<string, number>();
-    fScore.set(startKey, 0);
+    fScore.set(startKey, getDistance(start, endRaw) / (90 * (1000 / 3600)));
 
     while (openSet.size > 0) {
       let currentKey = '';
@@ -163,11 +172,37 @@ export class PathGraph {
         
         let traversalCost = neighbor.weight;
         
+        // Resource-Aware Mitigation: If edge has a natural flood penalty and a Boat is deployed, remove the 5x penalty
+        if (neighbor.isFloodRisk && (resources.includes('Boat') || resources.includes('Amphibious'))) {
+          traversalCost = traversalCost / 5.0; 
+        }
+        
         // Hazard Avoidance: Dynamically penalize edges near reported anomalies
         for (const anomaly of anomalies) {
           const distToHazard = getDistance(neighbor.node, anomaly.coordinates);
           if (distToHazard < 400) { // 400 meter danger radius
             traversalCost += 3600; // Add 1 hour penalty per nearby hazard
+          }
+        }
+        
+        // Visual Obstacles (Drawn Features) Penalty
+        for (const feature of drawnFeatures.features) {
+          if (feature.geometry.type === 'Point' && feature.properties?.type === 'risk') {
+            const distToHazard = getDistance(neighbor.node, feature.geometry.coordinates as Coordinate);
+            if (distToHazard < 400) {
+              traversalCost += 3600; // 1 hour penalty
+            }
+          } else if (feature.geometry.type === 'Polygon' && feature.properties?.type === 'flood') {
+            const polygonCoords = feature.geometry.coordinates as Coordinate[][];
+            if (polygonCoords && polygonCoords.length > 0) {
+              if (isPointInPolygon(neighbor.node, polygonCoords)) {
+                if (resources.includes('Boat') || resources.includes('Amphibious')) {
+                  // Boats pass freely through drawn flood zones
+                } else {
+                  traversalCost += 3600 * 5; // massive 5 hour penalty for traversing through flood water
+                }
+              }
+            }
           }
         }
         
@@ -183,7 +218,10 @@ export class PathGraph {
         if (tentative_gScore < (gScore.get(neighborKey) ?? Infinity)) {
           cameFrom.set(neighborKey, currentKey);
           gScore.set(neighborKey, tentative_gScore);
-          fScore.set(neighborKey, tentative_gScore); // Pure dynamic link-state cost (OSPF)
+          
+          // Calculate A* Heuristic (Admissible optimistic time cost in seconds assuming 90km/h max speed)
+          const hScore = getDistance(neighbor.node, endRaw) / (90 * (1000 / 3600));
+          fScore.set(neighborKey, tentative_gScore + hScore); // A* heuristic cost
           openSet.add(neighborKey);
         }
       }

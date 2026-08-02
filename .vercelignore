@@ -1,0 +1,15 @@
+# Vercel Ignore file
+# Ignore Tauri desktop app build files (1.7GB)
+src-tauri/
+
+# Ignore local builds and dependencies
+node_modules/
+dist/
+dist-ssr/
+.git/
+.vercel/
+
+# Ignore artifacts
+*Plan*.md
+*Walkthrough*.md
+*task*.md

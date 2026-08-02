@@ -10,14 +10,15 @@ export const sharedVictims = ydoc.getArray('victims');
 export const sharedAnomalies = ydoc.getArray('anomalies');
 export const sharedAssets = ydoc.getArray('assets');
 export const sharedBreadcrumbs = ydoc.getArray('breadcrumbs');
+export const sharedDrawnFeatures = ydoc.getArray('drawnFeatures');
 
 // 3. Initialize Local Off-Grid Persistence (IndexedDB)
 // This ensures data survives browser restarts when offline
-export const indexeddbProvider = new IndexeddbPersistence('aapdasync-mesh-db', ydoc);
+export const indexeddbProvider = new IndexeddbPersistence('aapdasync-mesh-db-v2', ydoc);
 
 // 4. Initialize Decentralized Server Relay (WebRTC Mesh)
 // This automatically connects to peers on the local subnet or via signaling servers
-export const webrtcProvider = new WebrtcProvider('aapdasync-field-mesh-v1', ydoc, {
+export const webrtcProvider = new WebrtcProvider('aapdasync-field-mesh-v2', ydoc, {
   signaling: [
     'wss://signaling.yjs.dev',
     // Fallback to local LAN signaling if running local dev server

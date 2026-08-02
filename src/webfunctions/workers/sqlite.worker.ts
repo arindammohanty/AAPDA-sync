@@ -29,7 +29,7 @@ async function initDb() {
     sqlite3Ref = sqlite3;
     
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v4.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
@@ -106,10 +106,9 @@ self.onmessage = (event: MessageEvent) => {
             const targetId = `${nLon},${nLat}`;
             
             const dist = getDistance(lon, lat, nLon, nLat);
-            const avgElev = (getElevation(lon, lat) + getElevation(nLon, nLat)) / 2;
-            const isFloodRisk = avgElev < 12.0;
+            const isFloodRisk = false; // Disabled synthetic flood risk for real roads
             
-            const finalWeight = dist * multiplier * (isFloodRisk ? 5.0 : 1.0);
+            const finalWeight = dist * multiplier;
 
             // Undirected graph insertion
             db.exec({

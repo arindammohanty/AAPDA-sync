@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Victim, TriageStatus } from '../../webfunctions/math/triage';
 import type { RouteStats, Coordinate } from '../../webfunctions/math/pathfinding';
 
@@ -18,13 +19,15 @@ interface TriageDashboardProps {
   onSelectVictim?: (victimId: string) => void;
   onDeleteVictim?: (victimId: string) => void;
   onUpdateStatus?: (victimId: string, status: TriageStatus) => void;
+  onPlotRoute?: (victimId: string, resources: string[]) => void;
   routeStats?: { insertion: RouteStats, extraction: RouteStats | null, safeZone: any } | null;
   anomalies?: any[];
   assets?: { id: string, name: string }[];
   onAddAsset?: (name: string) => void;
 }
 
-export default function TriageDashboard({ victims, selectedVictimId, onSelectVictim, onDeleteVictim, onUpdateStatus, routeStats, anomalies, assets, onAddAsset }: TriageDashboardProps) {
+export default function TriageDashboard({ victims, selectedVictimId, onSelectVictim, onDeleteVictim, onUpdateStatus, onPlotRoute, routeStats, anomalies, assets, onAddAsset }: TriageDashboardProps) {
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
   if (victims.length === 0) {
     return (
       <div className="p-8 text-center bg-white">
@@ -139,13 +142,41 @@ export default function TriageDashboard({ victims, selectedVictimId, onSelectVic
 
                   {/* Equipment Requirements */}
                   <div className="mb-3 pb-3 border-b border-gray-100">
-                    <span className="font-semibold text-gray-700 block mb-2">Required Equipment</span>
+                    <span className="font-semibold text-gray-700 block mb-2">Environmental Flags</span>
                     <div className="flex flex-wrap gap-1.5">
-                      {routeStats?.insertion.floodRiskWarnings ? <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-blue-200">Boat / Amphibious</span> : null}
+                      {routeStats?.insertion.floodRiskWarnings ? <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-blue-200">Flood Zones Detected</span> : null}
                       {v.partySize >= 5 ? <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-purple-200">High-Capacity Transport</span> : <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-gray-200">Standard Transport</span>}
                       {anomalies?.some(a => getDistance(a.coordinates, v.coordinates) < 500 && a.type === 'COLLAPSE') ? <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-red-200">Heavy Lifting Gear</span> : null}
                       {anomalies?.some(a => getDistance(a.coordinates, v.coordinates) < 500 && a.type === 'GAS_LEAK') ? <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-bold text-[10px] uppercase border border-orange-200">Hazmat / SCBA</span> : null}
                     </div>
+                  </div>
+
+                  {/* Deploy Assets / Plot Route */}
+                  <div className="mb-3 pb-3 border-b border-gray-100">
+                    <span className="font-semibold text-gray-700 block mb-2">Deploy Assets</span>
+                    <div className="flex flex-wrap gap-3 mb-3">
+                      {['Boat', 'Ambulance', 'Van'].map(asset => (
+                        <label key={asset} className="flex items-center gap-1.5 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            checked={selectedResources.includes(asset)} 
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedResources([...selectedResources, asset]);
+                              else setSelectedResources(selectedResources.filter(a => a !== asset));
+                            }}
+                          />
+                          <span className="text-xs font-bold text-gray-600 uppercase">{asset}</span>
+                        </label>
+                      ))}
+                    </div>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onPlotRoute?.(v.id, selectedResources); }}
+                      className="w-full bg-blue-600 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                    >
+                      Plot Rescue Route
+                    </button>
                   </div>
 
                   {/* Route Stats */}

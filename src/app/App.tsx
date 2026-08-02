@@ -9,7 +9,8 @@ import type { Victim, TriageStatus } from '../webfunctions/math/triage';
 import type { Coordinate } from '../webfunctions/math/pathfinding';
 import type { FeatureCollection, Point } from 'geojson';
 import { encode, decode } from '@msgpack/msgpack';
-import { sharedVictims, sharedAnomalies, sharedAssets, sharedBreadcrumbs, onSyncStatusChange } from '../webfunctions/sync/mesh';
+import simplify from '@turf/simplify';
+import { sharedVictims, sharedAnomalies, sharedAssets, sharedBreadcrumbs, sharedDrawnFeatures, onSyncStatusChange } from '../webfunctions/sync/mesh';
 import { useCallback } from 'react';
 
 function getDistanceFromLatLonInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -27,12 +28,14 @@ type Notification = { id: string; message: string; type: 'info' | 'success' | 'w
 export default function App() {
   const [victims, setVictims] = useState<(Victim & { score: number, coordinates: [number, number] })[]>([]);
   const [anomalies, setAnomalies] = useState<any[]>([]);
+  const [drawnFeatures, setDrawnFeatures] = useState<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
   const [assets, setAssets] = useState<{id: string, name: string}[]>([]);
   const [breadcrumbs, setBreadcrumbs] = useState<Coordinate[][]>([]);
   const [localTrail, setLocalTrail] = useState<Coordinate[]>([]);
   const lastRecordedRef = useRef<Coordinate | null>(null);
   
   const [selectedVictimId, setSelectedVictimId] = useState<string | null>(null);
+  const [activeRoutingRequest, setActiveRoutingRequest] = useState<{victimId: string, resources: string[]} | null>(null);
   const [activeRoute, setActiveRoute] = useState<Coordinate[]>([]);
   const [routeStats, setRouteStats] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
@@ -46,6 +49,9 @@ export default function App() {
   
   // Custom Targeting State
   const [isTargetingMode, setIsTargetingMode] = useState(false);
+  const [isGeolocationFailed, setIsGeolocationFailed] = useState(false);
+  const [isSettingManualLocation, setIsSettingManualLocation] = useState(false);
+  const [isManualLocationSet, setIsManualLocationSet] = useState(false);
   const [draftEvent, setDraftEvent] = useState({
     type: 'VICTIM',
     name: 'Field Report',
@@ -57,6 +63,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pathWorker = useRef<Worker | null>(null);
   const sqliteWorkerRef = useRef<Worker | null>(null);
+  const routingRequestRef = useRef<any>(null);
 
   const notify = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -94,6 +101,13 @@ export default function App() {
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
+          if (routingRequestRef.current) {
+            pathWorker.current.postMessage({
+              type: 'CALCULATE_ROUTE',
+              payload: routingRequestRef.current
+            });
+            routingRequestRef.current = null;
+          }
         }
       }
     };
@@ -140,44 +154,22 @@ export default function App() {
       const arr = sharedBreadcrumbs.toArray() as Coordinate[][];
       setBreadcrumbs(arr);
     };
+    const updateDrawnFeaturesFromMesh = () => {
+      const arr = sharedDrawnFeatures.toArray() as GeoJSON.Feature[];
+      setDrawnFeatures({ type: 'FeatureCollection', features: arr });
+    };
 
     sharedVictims.observe(updateReactStateFromMesh);
     sharedAnomalies.observe(updateAnomaliesFromMesh);
     sharedAssets.observe(updateAssetsFromMesh);
     sharedBreadcrumbs.observe(updateBreadcrumbsFromMesh);
+    sharedDrawnFeatures.observe(updateDrawnFeaturesFromMesh);
     
     // Check network sync status
     onSyncStatusChange((synced) => {
       setIsMeshSynced(synced);
       if (synced) {
         setBootState(prev => (prev === 'CHECKING_SERVER' || prev === 'PROMPT_OFF_GRID') ? 'READY' : prev);
-      }
-      if (synced && sharedVictims.length === 0) {
-        // If mesh is synced but empty, hydrate from local disk seed
-        fetch('/bhubaneshwar_incidents.json')
-          .then(res => res.json())
-          .then((data: FeatureCollection<Point>) => {
-            // Only hydrate if still empty to prevent race conditions
-            if (sharedVictims.length > 0) return; 
-            
-            const parsedVictims = data.features.map(f => {
-              const coords = f.geometry.coordinates as [number, number];
-              const dist = getDistanceFromLatLonInMeters(20.2961, 85.8245, coords[1], coords[0]);
-              return {
-                id: f.properties?.id || Math.random().toString(),
-                name: f.properties?.name,
-                severity: f.properties?.severity,
-                waterRisk: f.properties?.waterRisk,
-                partySize: f.properties?.partySize,
-                vulnerability: f.properties?.vulnerability,
-                distanceMeters: dist,
-                coordinates: coords,
-                score: 0
-              };
-            });
-            sharedVictims.insert(0, parsedVictims);
-          })
-          .catch(console.error);
       }
     });
 
@@ -186,6 +178,7 @@ export default function App() {
     updateAnomaliesFromMesh();
     updateAssetsFromMesh();
     updateBreadcrumbsFromMesh();
+    updateDrawnFeaturesFromMesh();
 
     const spatialWorker = new Worker(new URL('../webfunctions/workers/spatial.worker.ts', import.meta.url), { type: 'module' });
     
@@ -197,40 +190,50 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (selectedVictimId && pathWorker.current && sqliteWorkerRef.current) {
-      const target = victims.find(v => v.id === selectedVictimId);
+    setActiveRoutingRequest(null);
+    setActiveRoute([]);
+    setRouteStats(null);
+  }, [selectedVictimId]);
+
+  useEffect(() => {
+    if (activeRoutingRequest && pathWorker.current && sqliteWorkerRef.current) {
+      const target = victims.find(v => v.id === activeRoutingRequest.victimId);
       if (target) {
         let origin: Coordinate = [85.8245, 20.2961];
         
         if (userLocation) {
           const distToCity = getDistanceFromLatLonInMeters(20.2961, 85.8245, userLocation[1], userLocation[0]);
-          if (distToCity > 50000) {
+          if (distToCity > 100000) {
             origin = [85.8245, 20.2961];
           } else {
             origin = userLocation;
           }
         }
 
-        const minLon = Math.min(origin[0], target.coordinates[0]) - 0.1;
-        const maxLon = Math.max(origin[0], target.coordinates[0]) + 0.1;
-        const minLat = Math.min(origin[1], target.coordinates[1]) - 0.1;
-        const maxLat = Math.max(origin[1], target.coordinates[1]) + 0.1;
+        const minLon = Math.min(origin[0], target.coordinates[0]) - 1.0;
+        const maxLon = Math.max(origin[0], target.coordinates[0]) + 1.0;
+        const minLat = Math.min(origin[1], target.coordinates[1]) - 1.0;
+        const maxLat = Math.max(origin[1], target.coordinates[1]) + 1.0;
 
         sqliteWorkerRef.current.postMessage({
           type: 'GET_BBOX_GRAPH',
           payload: { minLon, maxLon, minLat, maxLat }
         });
 
-        pathWorker.current.postMessage({
-          type: 'CALCULATE_ROUTE',
-          payload: { start: origin, target: target.coordinates, anomalies, breadcrumbs }
-        });
+        routingRequestRef.current = { 
+          start: origin, 
+          target: target.coordinates, 
+          anomalies, 
+          breadcrumbs, 
+          drawnFeatures,
+          resources: activeRoutingRequest.resources
+        };
       }
-    } else {
+    } else if (!activeRoutingRequest) {
       setActiveRoute([]);
       setRouteStats(null);
     }
-  }, [selectedVictimId, victims, userLocation, anomalies, breadcrumbs]);
+  }, [activeRoutingRequest, victims, userLocation, anomalies, breadcrumbs, drawnFeatures]);
 
   // Breadcrumb Trail Recording Logic
   useEffect(() => {
@@ -242,14 +245,30 @@ export default function App() {
     }
   }, [userLocation]);
 
-  // Generate dynamic QR sync payload (serialize current triage queue)
+  // Generate dynamic QR sync payload (serialize current triage queue and drawn features)
   useEffect(() => {
-    if (victims.length > 0) {
+    if (victims.length > 0 || drawnFeatures.features.length > 0 || breadcrumbs.length > 0) {
       // Serialize a subset of critical data to keep it efficient
       const criticalData = victims.map(v => ({ id: v.id, name: v.name, severity: v.severity, partySize: v.partySize, score: v.score, coords: v.coordinates }));
-      setSyncBuffer(encode(criticalData));
+      
+      // Simplify polygons for QR density limits
+      const simplifiedFeatures = drawnFeatures.features.map(f => {
+        if (f.geometry.type === 'Polygon') {
+          const coords = f.geometry.coordinates;
+          if (coords && coords[0] && coords[0].length >= 4) {
+            try {
+              return simplify(f as any, { tolerance: 0.0001, highQuality: false });
+            } catch (e) {
+              return f;
+            }
+          }
+        }
+        return f;
+      });
+
+      setSyncBuffer(encode({ victims: criticalData, features: simplifiedFeatures, trails: breadcrumbs }));
     }
-  }, [victims]);
+  }, [victims, drawnFeatures, breadcrumbs]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -268,18 +287,36 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const handlePayloadReceived = (buffer: Uint8Array) => {
+  // Decode incoming payload
+  const handlePayloadReceived = (data: Uint8Array) => {
     try {
-      const decodedData = decode(buffer) as any[];
-      let added = 0;
+      const decodedData = decode(data) as { victims?: any[], features?: any[] } | any[];
+      let incomingVictims: any[] = [];
+      let incomingFeatures: any[] = [];
       
-      decodedData.forEach(incoming => {
-        const existing = sharedVictims.toArray().find((v: any) => v.id === incoming.id);
-        if (!existing) {
+      let incomingTrails: any[] = [];
+      
+      if (Array.isArray(decodedData)) {
+        incomingVictims = decodedData; // backwards compatibility
+      } else {
+        incomingVictims = decodedData.victims || [];
+        incomingFeatures = decodedData.features || [];
+        incomingTrails = decodedData.trails || [];
+      }
+
+      let addedVictims = 0;
+      let addedFeatures = 0;
+      let addedTrails = 0;
+      const currentVictimIds = new Set(sharedVictims.toArray().map((v: any) => v.id));
+      const currentFeatureIds = new Set(sharedDrawnFeatures.toArray().map((f: any) => f.properties?.id));
+      const currentTrailsStr = new Set(sharedBreadcrumbs.toArray().map((t: any) => JSON.stringify(t)));
+      
+      incomingVictims.forEach((incoming: any) => {
+        if (!currentVictimIds.has(incoming.id)) {
           sharedVictims.push([{
             id: incoming.id,
-            name: incoming.name || 'Synced Incident',
-            severity: incoming.severity || 5,
+            name: incoming.name,
+            severity: incoming.severity,
             waterRisk: 0,
             partySize: incoming.partySize || 1,
             vulnerability: 1.0,
@@ -287,14 +324,28 @@ export default function App() {
             coordinates: incoming.coords,
             score: incoming.score || 0
           }]);
-          added++;
+          addedVictims++;
         }
       });
       
-      if (added > 0) {
-        notify(`Optical Sync: Synced ${added} new incident(s) from peer.`, 'success');
+      incomingFeatures.forEach((incomingFeature: any) => {
+        if (incomingFeature.properties?.id && !currentFeatureIds.has(incomingFeature.properties.id)) {
+          sharedDrawnFeatures.push([incomingFeature]);
+          addedFeatures++;
+        }
+      });
+      
+      incomingTrails.forEach((incomingTrail: any) => {
+        if (!currentTrailsStr.has(JSON.stringify(incomingTrail))) {
+           sharedBreadcrumbs.push([incomingTrail]);
+           addedTrails++;
+        }
+      });
+      
+      if (addedVictims > 0 || addedFeatures > 0 || addedTrails > 0) {
+        notify(`Optical Sync: Synced ${addedVictims} incident(s), ${addedFeatures} hazard(s), and ${addedTrails} trail(s).`, 'success');
       } else {
-        notify(`Optical Sync: Checked ${decodedData.length} records, no new incidents found.`, 'info');
+        notify(`Optical Sync: Checked payload, no new data found.`, 'info');
       }
     } catch (e) {
       console.error('Failed to decode QR payload', e);
@@ -303,6 +354,14 @@ export default function App() {
   };
 
   const handleMapClick = useCallback((coords: [number, number]) => {
+    if (isSettingManualLocation) {
+      setUserLocation(coords);
+      setIsManualLocationSet(true);
+      setIsSettingManualLocation(false);
+      notify('Manual location set successfully.', 'success');
+      return;
+    }
+
     if (!isTargetingMode) return;
     
     if (draftEvent.type === 'VICTIM') {
@@ -328,7 +387,7 @@ export default function App() {
     }
     
     setIsTargetingMode(false);
-  }, [isTargetingMode, draftEvent]);
+  }, [isSettingManualLocation, isTargetingMode, draftEvent]);
 
   const handleDeleteVictim = (id: string) => {
     const arr = sharedVictims.toArray() as { id: string }[];
@@ -432,12 +491,56 @@ export default function App() {
           localTrail={localTrail}
           selectedVictimId={selectedVictimId} 
           activeRoute={activeRoute} 
-          onUserLocationUpdate={setUserLocation} 
+          userLocation={userLocation}
+          isGeolocationFailed={isGeolocationFailed}
+          drawnFeatures={drawnFeatures}
+          onUpdateDrawnFeatures={(features) => {
+            const currentIds = new Set(sharedDrawnFeatures.toArray().map((f: any) => f.properties?.id));
+            features.features.forEach((feature) => {
+              if (feature.properties?.id && !currentIds.has(feature.properties.id)) {
+                sharedDrawnFeatures.push([feature]);
+              }
+            });
+            setDrawnFeatures(features);
+          }}
+          onUserLocationUpdate={(coord) => {
+            if (!isManualLocationSet) {
+              setUserLocation(coord);
+            }
+          }}
+          onGeolocationError={() => setIsGeolocationFailed(true)}
           onMapClick={handleMapClick}
           onDeleteAnomaly={handleDeleteAnomaly}
           onBroadcastTrail={handleBroadcastTrail}
+          onEnableManualLocation={() => setIsSettingManualLocation(true)}
+          isManualLocation={isManualLocationSet}
         />
       </div>
+
+      {/* Geolocation Fallback Banner */}
+      {isGeolocationFailed && !isSettingManualLocation && !isManualLocationSet && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 bg-amber-500 text-white px-6 py-3 rounded-full shadow-2xl font-bold text-sm tracking-wide flex items-center gap-3 cursor-pointer hover:bg-amber-600 transition-colors" onClick={() => setIsSettingManualLocation(true)}>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          GPS Failed. Click to set manual location.
+        </div>
+      )}
+
+      {/* Manual Location Active Banner */}
+      {isManualLocationSet && !isSettingManualLocation && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 bg-blue-600/90 backdrop-blur-md text-white px-5 py-2 rounded-full shadow-lg font-bold text-xs tracking-wide flex items-center gap-2 cursor-pointer hover:bg-blue-700 transition-colors border border-blue-400" onClick={() => setIsSettingManualLocation(true)}>
+          <div className="w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_8px_#34d399]"></div>
+          Manual GPS Active. Click to update.
+        </div>
+      )}
+
+      {/* Manual Location Target Mode */}
+      {isSettingManualLocation && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 bg-blue-600 text-white px-8 py-3 rounded-full shadow-2xl font-mono text-sm tracking-widest uppercase flex items-center gap-3 animate-pulse cursor-pointer border-2 border-blue-400" onClick={() => setIsSettingManualLocation(false)}>
+          <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+          Pan & Press Spacebar (or Tap) to set your location
+          <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
+        </div>
+      )}
 
       {/* Targeting Mode Banner */}
       {isTargetingMode && (
@@ -592,6 +695,7 @@ export default function App() {
             onSelectVictim={setSelectedVictimId}
             onDeleteVictim={handleDeleteVictim}
             onUpdateStatus={handleUpdateStatus}
+            onPlotRoute={(victimId, resources) => setActiveRoutingRequest({ victimId, resources })}
             routeStats={routeStats}
             anomalies={anomalies}
             assets={assets}

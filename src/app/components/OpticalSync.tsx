@@ -24,8 +24,8 @@ export default function OpticalSync({ payloadBuffer, onPayloadReceived }: Optica
     // Convert Uint8Array to base64
     const base64Str = btoa(String.fromCharCode.apply(null, Array.from(payloadBuffer)));
     
-    // Chunk into 50-character segments to ensure QR codes stay simple and fast to scan
-    const chunkSize = 50;
+    // Chunk into 500-character segments to ensure QR codes stay simple and fast to scan
+    const chunkSize = 500;
     const newChunks = [];
     for (let i = 0; i < base64Str.length; i += chunkSize) {
       // Format: [INDEX/TOTAL] DATA
