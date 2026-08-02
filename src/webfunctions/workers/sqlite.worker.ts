@@ -176,7 +176,7 @@ self.onmessage = (event: MessageEvent) => {
         const ids = nodesResult.map((row: any) => `'${row[0]}'`).join(',');
         
         const edgesResult = db.exec({
-          sql: `SELECT source, target, weight, is_flood_risk FROM routing_edges WHERE source IN (${ids})`,
+          sql: `SELECT source, target, weight, is_highway, is_flood_risk FROM routing_edges WHERE source IN (${ids})`,
           returnValue: 'resultRows'
         });
 
@@ -187,13 +187,14 @@ self.onmessage = (event: MessageEvent) => {
 
         if (edgesResult) {
           edgesResult.forEach((row: any) => {
-            const [source, target, weight, is_flood_risk] = row;
+            const [source, target, weight, is_highway, is_flood_risk] = row;
             // The target might be just outside the bbox, which is fine, we just need the coord
             const targetCoords = target.split(',').map(Number);
             if (adjacencyList.has(source)) {
               adjacencyList.get(source).push({
                 node: targetCoords,
                 weight: weight,
+                isHighway: is_highway === 1,
                 isFloodRisk: is_flood_risk === 1
               });
             }
