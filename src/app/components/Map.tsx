@@ -29,9 +29,10 @@ interface MapProps {
   onUpdateDrawnFeatures?: (features: GeoJSON.FeatureCollection) => void;
   onEnableManualLocation?: () => void;
   isManualLocation?: boolean;
+  onMapPan?: (bounds: { minLon: number, minLat: number, maxLon: number, maxLat: number }) => void;
 }
 
-export default function Map({ victims = [], anomalies = [], breadcrumbs = [], localTrail = [], selectedVictimId = null, activeRoute = [], userLocation = null, isGeolocationFailed = false, onUserLocationUpdate, onGeolocationError, onMapClick, onDeleteAnomaly, onBroadcastTrail, drawnFeatures = { type: 'FeatureCollection', features: [] }, onUpdateDrawnFeatures, onEnableManualLocation, isManualLocation = false }: MapProps) {
+export default function Map({ victims = [], anomalies = [], breadcrumbs = [], localTrail = [], selectedVictimId = null, activeRoute = [], userLocation = null, isGeolocationFailed = false, onUserLocationUpdate, onGeolocationError, onMapClick, onDeleteAnomaly, onBroadcastTrail, drawnFeatures = { type: 'FeatureCollection', features: [] }, onUpdateDrawnFeatures, onEnableManualLocation, isManualLocation = false, onMapPan }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<{ [id: string]: maplibregl.Marker }>({});
@@ -42,7 +43,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
   const currentPolygonCoords = useRef<[number, number][]>([]);
 
   // Stable Refs for Callbacks and State
-  const callbacksRef = useRef({ onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate: (_coords: [number, number]) => {} });
+  const callbacksRef = useRef({ onUserLocationUpdate, onGeolocationError, onMapClick, onMapPan, addCoordinate: (_coords: [number, number]) => {} });
   const drawModeRef = useRef(drawMode);
   const keyHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
 
@@ -171,6 +172,22 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
       setIsMapLoaded(true);
 
       if (!map.current) return;
+
+      const emitBounds = () => {
+        if (!map.current || !callbacksRef.current.onMapPan) return;
+        const bounds = map.current.getBounds();
+        callbacksRef.current.onMapPan({
+          minLon: bounds.getWest(),
+          minLat: bounds.getSouth(),
+          maxLon: bounds.getEast(),
+          maxLat: bounds.getNorth()
+        });
+      };
+
+      map.current.on('moveend', emitBounds);
+      map.current.on('zoomend', emitBounds);
+      // Trigger initial bounds
+      emitBounds();
 
       // 1. Drawing Data Source
       if (!map.current.getSource('draw-data')) {
@@ -356,7 +373,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
 
   // Keep callback refs updated for the map handlers
   useEffect(() => {
-    callbacksRef.current = { onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate };
+    callbacksRef.current = { onUserLocationUpdate, onGeolocationError, onMapClick, onMapPan, addCoordinate };
   }, [onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate]);
 
   // Update Markers when victims change

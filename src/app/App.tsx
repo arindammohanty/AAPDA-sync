@@ -38,7 +38,6 @@ export default function App() {
   const [activeRoute, setActiveRoute] = useState<Coordinate[]>([]);
   const [routeStats, setRouteStats] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
-  const [isDbReady, setIsDbReady] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [syncBuffer, setSyncBuffer] = useState<Uint8Array>(new Uint8Array());
@@ -46,6 +45,7 @@ export default function App() {
   const [isOffGridModalOpen, setIsOffGridModalOpen] = useState(false);
   const [bootState, setBootState] = useState<'CHECKING_MAP' | 'LOADING_MAP' | 'CHECKING_SERVER' | 'PROMPT_OFF_GRID' | 'READY'>('CHECKING_MAP');
   const [isRouting, setIsRouting] = useState(false);
+  const [loadedTiles, setLoadedTiles] = useState<Set<string>>(new Set());
   
   // Custom Targeting State
   const [isTargetingMode, setIsTargetingMode] = useState(false);
@@ -60,7 +60,6 @@ export default function App() {
     hazardType: 'GAS_LEAK'
   });
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const pathWorker = useRef<Worker | null>(null);
   const sqliteWorkerRef = useRef<Worker | null>(null);
   const routingRequestRef = useRef<any>(null);
@@ -85,19 +84,21 @@ export default function App() {
     sqliteWorker.onmessage = (e) => {
       const { type, payload } = e.data;
       if (type === 'DB_READY') {
-        setIsDbReady(true);
         setBootState('LOADING_MAP');
-        fetch('/bhubaneshwar_roads_massive.geojson') // 100km radius graph
+        fetch('/national_backbone.geojson') // National Highways Backbone
           .then(res => res.json())
           .then((data) => {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
           });
       } else if (type === 'CHUNK_LOADED') {
-        notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
-        setBootState('CHECKING_SERVER');
-        setTimeout(() => {
-          setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
-        }, 3000);
+        // Only notify if it's a significant chunk (e.g. backbone) to avoid spamming on tile loads
+        if (payload.nodeCount > 500) {
+          notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
+          setBootState('CHECKING_SERVER');
+          setTimeout(() => {
+            setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
+          }, 3000);
+        }
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
@@ -239,6 +240,48 @@ export default function App() {
     }
   }, [activeRoutingRequest, victims, userLocation, anomalies, breadcrumbs, drawnFeatures]);
 
+  const handleMapPan = useCallback((bounds: { minLon: number, minLat: number, maxLon: number, maxLat: number }) => {
+    if (!sqliteWorkerRef.current) return;
+    
+    const minLatGrid = Math.floor(bounds.minLat * 10) / 10;
+    const maxLatGrid = Math.floor(bounds.maxLat * 10) / 10;
+    const minLonGrid = Math.floor(bounds.minLon * 10) / 10;
+    const maxLonGrid = Math.floor(bounds.maxLon * 10) / 10;
+    
+    const newTilesToLoad: string[] = [];
+    
+    // Cap iterations to avoid huge loops if zoomed way out
+    if (maxLatGrid - minLatGrid > 2 || maxLonGrid - minLonGrid > 2) return;
+
+    for (let lat = minLatGrid; lat <= maxLatGrid + 0.05; lat += 0.1) {
+      for (let lon = minLonGrid; lon <= maxLonGrid + 0.05; lon += 0.1) {
+        const tileKey = `${lat.toFixed(1)}_${lon.toFixed(1)}`;
+        newTilesToLoad.push(tileKey);
+      }
+    }
+    
+    setLoadedTiles(prev => {
+      const updated = new Set(prev);
+      let didFetch = false;
+      newTilesToLoad.forEach(tileKey => {
+        if (!updated.has(tileKey)) {
+          updated.add(tileKey);
+          didFetch = true;
+          fetch(`/routing_tiles/${tileKey}.geojson`)
+            .then(res => {
+              if (res.ok) return res.json();
+              throw new Error('Tile not found');
+            })
+            .then(data => {
+              sqliteWorkerRef.current?.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
+            })
+            .catch(() => {});
+        }
+      });
+      return didFetch ? updated : prev; // avoid unnecessary re-renders
+    });
+  }, []);
+
   // Breadcrumb Trail Recording Logic
   useEffect(() => {
     if (userLocation) {
@@ -274,22 +317,6 @@ export default function App() {
     }
   }, [victims, drawnFeatures, breadcrumbs]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !sqliteWorkerRef.current) return;
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        sqliteWorkerRef.current!.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
-        notify('Processing Map Module...', 'info');
-      } catch (err) {
-        notify('Invalid Map Chunk format.', 'warning');
-      }
-    };
-    reader.readAsText(file);
-  };
 
   // Decode incoming payload
   const handlePayloadReceived = (data: Uint8Array) => {
@@ -518,6 +545,7 @@ export default function App() {
           onBroadcastTrail={handleBroadcastTrail}
           onEnableManualLocation={() => setIsSettingManualLocation(true)}
           isManualLocation={isManualLocationSet}
+          onMapPan={handleMapPan}
         />
       </div>
 
@@ -712,30 +740,23 @@ export default function App() {
           />
           
           <div className="p-6 bg-gray-50 border-t border-gray-100 pb-8 md:pb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                OPFS Modules
-              </h3>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isDbReady ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-                <span className="text-[10px] font-bold text-gray-500">{isDbReady ? 'ONLINE' : 'BOOTING'}</span>
-              </div>
+            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex justify-between">
+              <span>OPFS Modules</span>
+              <span className="text-emerald-500 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
+              </span>
+            </h3>
+            <p className="text-[10px] text-gray-500 mb-3">Dynamically tracking visible region routing meshes.</p>
+            <div className="text-xs font-mono bg-white border border-gray-200 p-2 rounded text-gray-600 mb-3 text-center">
+              {loadedTiles.size} Tiles Cached Locally
             </div>
             <button 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!isDbReady}
-              className="w-full min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200 shadow-sm text-sm font-semibold text-gray-700 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed outline-none focus:ring-2 focus:ring-blue-500"
+              onClick={() => notify('Background auto-tiler is managing OPFS storage transparently.', 'info')}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              Inject Map Chunk
+              Auto-Routing Active
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept=".geojson,.json" 
-              onChange={handleFileUpload} 
-            />
           </div>
 
           <div className="p-6 bg-white border-t border-gray-100 pb-12 md:pb-6">
