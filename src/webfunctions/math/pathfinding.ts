@@ -126,12 +126,11 @@ export class PathGraph {
   // OSPF / Dijkstra's Search Algorithm - Dynamic Link-State Routing
   findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = [], drawnFeatures: FeatureCollection = { type: 'FeatureCollection', features: [] }, resources: string[] = []): RouteStats | null {
     const startNodes = this.getClosestNodes(startRaw, 5); // Try top 5 closest nodes to escape isolated islands
-    const endNodes = this.getClosestNodes(endRaw, 1);
+    const endNodes = this.getClosestNodes(endRaw, 5); // Try top 5 closest nodes to avoid isolated target segments
     
     if (startNodes.length === 0 || endNodes.length === 0) return null;
     
-    const end = endNodes[0];
-    const endKey = end.join(',');
+    const endKeys = new Set(endNodes.map(n => n.join(',')));
     
     let bestPartialStats: RouteStats | null = null;
     let minDistanceToEnd = Infinity;
@@ -161,8 +160,11 @@ export class PathGraph {
 
         if (!currentKey) break;
 
-        if (currentKey === endKey) {
+        if (endKeys.has(currentKey)) {
           found = true;
+          // Store the actual matched end node for path reconstruction
+          endKeys.clear();
+          endKeys.add(currentKey); 
           break;
         }
 
@@ -209,10 +211,12 @@ export class PathGraph {
       }
 
       if (found) {
-        const stats = this.reconstructPath(cameFrom, endKey);
+        const finalEndKey = Array.from(endKeys)[0];
+        const finalEndNode = finalEndKey.split(',').map(Number) as Coordinate;
+        const stats = this.reconstructPath(cameFrom, finalEndKey);
         stats.path.unshift(startRaw);
         stats.path.push(endRaw);
-        const offRoadDist = getDistance(startRaw, start) + getDistance(end, endRaw);
+        const offRoadDist = getDistance(startRaw, start) + getDistance(finalEndNode, endRaw);
         stats.totalDistance += offRoadDist;
         stats.travelTimeMinutes += Math.ceil((offRoadDist / (15 * (1000 / 3600))) / 60);
         return stats;
