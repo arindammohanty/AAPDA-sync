@@ -142,7 +142,7 @@ export class PathGraph {
       const gScore = new Map<string, number>();
       gScore.set(startKey, 0);
       const fScore = new Map<string, number>();
-      fScore.set(startKey, getDistance(start, endRaw) / (90 * (1000 / 3600)));
+      fScore.set(startKey, getDistance(start, endRaw) * 0.5);
 
       let found = false;
 
@@ -176,6 +176,11 @@ export class PathGraph {
           
           let traversalCost = neighbor.weight;
           
+          // Heavily penalize minor tracks/residential roads to force routing onto the main highway grid
+          if (!neighbor.isHighway) {
+            traversalCost *= 4.0;
+          }
+          
           if (neighbor.isFloodRisk && (resources.includes('Boat') || resources.includes('Amphibious'))) {
             traversalCost = traversalCost / 5.0; 
           }
@@ -204,7 +209,7 @@ export class PathGraph {
           if (tentative_gScore < (gScore.get(neighborKey) ?? Infinity)) {
             cameFrom.set(neighborKey, currentKey);
             gScore.set(neighborKey, tentative_gScore);
-            fScore.set(neighborKey, tentative_gScore + (getDistance(neighbor.node, endRaw) / (90 * (1000 / 3600))));
+            fScore.set(neighborKey, tentative_gScore + (getDistance(neighbor.node, endRaw) * 0.5));
             openSet.add(neighborKey);
           }
         }
