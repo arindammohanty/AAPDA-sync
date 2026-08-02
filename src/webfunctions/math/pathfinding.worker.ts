@@ -51,16 +51,19 @@ self.onmessage = (e: MessageEvent) => {
 
     const allSafeZones = [...SAFE_ZONES, ...dynamicShelters];
 
-    for (const safeZone of allSafeZones) {
-      // Very basic optimization: skip A* if haversine distance is already much worse than our best path
-      const directDist = getDistance(target, safeZone.coordinates);
-      if (bestExtractionRoute && directDist > minDistance * 1.5) continue;
+    // Sort safe zones by direct haversine distance to avoid running A* against every shelter on slow phone CPUs
+    const sortedSafeZones = allSafeZones.sort((a, b) => 
+      getDistance(target, a.coordinates) - getDistance(target, b.coordinates)
+    );
 
+    // Only attempt A* routing to the absolute closest shelter (and the second closest as a fallback)
+    for (const safeZone of sortedSafeZones.slice(0, 2)) {
       const route = graph.findPath(target, safeZone.coordinates, anomalies, drawnFeatures, resources);
       if (route && route.totalDistance < minDistance) {
         minDistance = route.totalDistance;
         bestExtractionRoute = route;
         bestSafeZone = safeZone;
+        break; // Found the optimal closest route, skip further expensive A* calculations
       }
     }
 

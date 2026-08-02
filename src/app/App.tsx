@@ -497,6 +497,17 @@ export default function App() {
               <div className="space-y-6 text-sm text-gray-300">
                 <section>
                   <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
+                    <span className="text-purple-500">⏱</span> Expected Map Ingestion Times
+                  </h3>
+                  <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 space-y-1.5 text-xs sm:text-sm">
+                    <p><strong>Laptops (Fastest):</strong> 1~4 Minutes. <span className="text-gray-500">(With optimal network speeds)</span></p>
+                    <p><strong>Tablets (Medium):</strong> 5~8 Minutes. <span className="text-gray-500">(With optimal network speeds)</span></p>
+                    <p><strong>Phones (Slowest):</strong> ~ 10 Minutes. <span className="text-gray-500">(With optimal network speeds)</span></p>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
                     <span className="text-blue-500">1.</span> Mapping & Tracking
                   </h3>
                   <ul className="list-disc pl-5 space-y-1 text-gray-300">
