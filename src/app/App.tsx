@@ -87,7 +87,7 @@ export default function App() {
       if (type === 'DB_READY') {
         setIsDbReady(true);
         setBootState('LOADING_MAP');
-        fetch('/bhubaneshwar_roads_massive.geojson') // 100km radius graph
+        fetch('/odisha_state_graph.geojson') // 100km radius graph
           .then(res => res.json())
           .then((data) => {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
