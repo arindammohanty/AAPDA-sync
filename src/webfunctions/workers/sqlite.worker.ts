@@ -82,6 +82,9 @@ self.onmessage = (event: MessageEvent) => {
         let edgeCount = 0;
         let featureCount = 0;
 
+        const stmtNodes = db.prepare('INSERT OR IGNORE INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)');
+        const stmtEdges = db.prepare('INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)');
+
         for (const feature of geoJson.features) {
           featureCount++;
           
@@ -98,10 +101,9 @@ self.onmessage = (event: MessageEvent) => {
             const [lon, lat] = coords[i];
             const nodeId = `${lon},${lat}`;
             
-            db.exec({
-              sql: 'INSERT OR IGNORE INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)',
-              bind: [nodeId, lon, lat, getElevation(lon, lat)]
-            });
+            stmtNodes.bind([nodeId, lon, lat, getElevation(lon, lat)]);
+            stmtNodes.step();
+            stmtNodes.reset();
             nodeCount++;
 
             if (i < coords.length - 1) {
@@ -113,14 +115,14 @@ self.onmessage = (event: MessageEvent) => {
               
               const finalWeight = dist * multiplier;
 
-              db.exec({
-                sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
-                bind: [nodeId, targetId, finalWeight, isHighway, isFloodRisk]
-              });
-              db.exec({
-                sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
-                bind: [targetId, nodeId, finalWeight, isHighway, isFloodRisk]
-              });
+              stmtEdges.bind([nodeId, targetId, finalWeight, isHighway, isFloodRisk]);
+              stmtEdges.step();
+              stmtEdges.reset();
+
+              stmtEdges.bind([targetId, nodeId, finalWeight, isHighway, isFloodRisk]);
+              stmtEdges.step();
+              stmtEdges.reset();
+              
               edgeCount++;
             }
           }
@@ -135,6 +137,9 @@ self.onmessage = (event: MessageEvent) => {
           }
         }
         
+        stmtNodes.finalize();
+        stmtEdges.finalize();
+        
         db.exec('COMMIT;');
         if (isFallback) syncToIndexedDB(sqlite3Ref, db).catch(console.error);
 
@@ -144,7 +149,8 @@ self.onmessage = (event: MessageEvent) => {
       
       processChunk().catch(err => {
         console.error('Failed processing map chunk:', err);
-        db.exec('ROLLBACK;');
+        self.postMessage({ type: 'CHUNK_ERROR', payload: err.message || 'Unknown SQLite Error' });
+        try { db.exec('ROLLBACK;'); } catch (e) {}
       });
       
     } else if (type === 'GET_BBOX_GRAPH') {

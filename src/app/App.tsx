@@ -496,6 +496,7 @@ export default function App() {
                     <span className="text-blue-500">1.</span> Mapping & Tracking
                   </h3>
                   <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                    <li><strong>Coverage Area:</strong> The offline routing graph is currently strictly limited to roads present within the state of <strong>Odisha</strong>. Operations outside this geofence will rely solely on off-road vectors.</li>
                     <li><strong>Field Reports:</strong> Use the Priority Manifest to log victims, hazards (e.g., floods, gas leaks), and active assets.</li>
                     <li><strong>Custom Pins:</strong> You can drop custom markers for rescue shelters, hazard zones, or manually set your own GPS location if your hardware fails to lock onto satellites.</li>
                   </ul>
