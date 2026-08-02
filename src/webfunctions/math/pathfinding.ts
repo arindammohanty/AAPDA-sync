@@ -110,10 +110,13 @@ export class PathGraph {
     }
   }
 
-  getClosestNodes(target: Coordinate, count: number = 5): Coordinate[] {
+  getClosestNodes(target: Coordinate, count: number = 5, requireHighway: boolean = false): Coordinate[] {
     const nodes: {coord: Coordinate, dist: number}[] = [];
 
-    for (const key of this.adjacencyList.keys()) {
+    for (const [key, edges] of this.adjacencyList.entries()) {
+      if (requireHighway) {
+        if (!edges.some(e => e.isHighway)) continue;
+      }
       const [lon, lat] = key.split(',').map(Number);
       const coord: Coordinate = [lon, lat];
       const dist = getDistance(target, coord);
@@ -126,8 +129,15 @@ export class PathGraph {
 
   // OSPF / Dijkstra's Search Algorithm - Dynamic Link-State Routing
   findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = [], drawnFeatures: FeatureCollection = { type: 'FeatureCollection', features: [] }, resources: string[] = []): RouteStats | null {
-    const startNodes = this.getClosestNodes(startRaw, 15); // Increased to 15 to escape deep off-road/isolated tracks
-    const endNodes = this.getClosestNodes(endRaw, 25); // Increased to 25 to guarantee finding a connected road near shelters
+    // Force the search to include at least 5 nearby highway nodes to guarantee escaping isolated topological grids
+    const startNodes = [
+      ...this.getClosestNodes(startRaw, 10),
+      ...this.getClosestNodes(startRaw, 5, true)
+    ];
+    const endNodes = [
+      ...this.getClosestNodes(endRaw, 15),
+      ...this.getClosestNodes(endRaw, 10, true)
+    ];
     
     if (startNodes.length === 0 || endNodes.length === 0) return null;
     
@@ -141,9 +151,13 @@ export class PathGraph {
       const openSet = new Set<string>([startKey]);
       const cameFrom = new Map<string, string>();
       const gScore = new Map<string, number>();
-      gScore.set(startKey, 0);
+      
+      // Accurate starting penalty: moving off-road to the start node costs 4.1 m/s (15km/h)
+      const initialOffRoadCost = getDistance(startRaw, start) / 4.1;
+      gScore.set(startKey, initialOffRoadCost);
+      
       const fScore = new Map<string, number>();
-      fScore.set(startKey, getDistance(start, endRaw) * 0.5);
+      fScore.set(startKey, initialOffRoadCost + getDistance(start, endRaw) * 0.5);
 
       let found = false;
 
