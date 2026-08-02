@@ -45,6 +45,7 @@ export default function App() {
   const [isMeshSynced, setIsMeshSynced] = useState(false);
   const [isOffGridModalOpen, setIsOffGridModalOpen] = useState(false);
   const [bootState, setBootState] = useState<'CHECKING_MAP' | 'LOADING_MAP' | 'CHECKING_SERVER' | 'PROMPT_OFF_GRID' | 'READY'>('CHECKING_MAP');
+  const [mapLoadProgress, setMapLoadProgress] = useState(0);
   const [isRouting, setIsRouting] = useState(false);
   
   // Custom Targeting State
@@ -93,11 +94,15 @@ export default function App() {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
           });
       } else if (type === 'CHUNK_LOADED') {
+        setMapLoadProgress(100);
         notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
         setBootState('CHECKING_SERVER');
         setTimeout(() => {
           setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
         }, 3000);
+      } else if (type === 'CHUNK_PROGRESS') {
+        const { current, total } = payload;
+        setMapLoadProgress(Math.floor((current / total) * 100));
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
@@ -449,9 +454,17 @@ export default function App() {
               <div className={`flex items-center gap-3 ${bootState === 'CHECKING_MAP' ? 'text-white' : 'text-emerald-400'}`}>
                 <span>{bootState === 'CHECKING_MAP' ? '•' : '✓'}</span> Checking OPFS Storage
               </div>
-              <div className={`flex items-center gap-3 ${bootState === 'LOADING_MAP' ? 'text-white animate-pulse' : (bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? 'text-emerald-400' : ''}`}>
+              <div className={`flex items-center gap-3 ${bootState === 'LOADING_MAP' ? 'text-white' : (bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? 'text-emerald-400' : ''}`}>
                 <span>{(bootState === 'CHECKING_SERVER' || bootState === 'PROMPT_OFF_GRID') ? '✓' : '•'}</span> Injecting Map Modules
               </div>
+              {bootState === 'LOADING_MAP' && (
+                <div className="w-full h-2 bg-gray-700 rounded-full mt-2 overflow-hidden relative">
+                  <div 
+                    className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${mapLoadProgress}%` }}
+                  ></div>
+                </div>
+              )}
               <div className={`flex items-center gap-3 ${bootState === 'CHECKING_SERVER' ? 'text-white animate-pulse' : ''}`}>
                 <span>{bootState === 'PROMPT_OFF_GRID' ? '✗' : '•'}</span> Handshaking WebRTC Mesh
               </div>
