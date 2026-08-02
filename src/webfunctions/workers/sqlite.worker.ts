@@ -6,7 +6,6 @@ let db: any = null;
 let sqlite3Ref: any = null;
 let isFallback = false;
 
-// Pseudo-random elevation generator (migrated from pathfinding)
 function getElevation(lon: number, lat: number): number {
   const dx = (lon - 85.8) * 100;
   const dy = (lat - 20.3) * 100;
@@ -28,41 +27,45 @@ async function initDb() {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v9.sqlite3');
-      console.log('[SQLite OPFS] Mounted resilient storage.');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v16.sqlite3');
+      console.log('[SQLite OPFS] Mounted resilient storage (v16).');
     } else {
       db = await initializeFallbackDb(sqlite3);
       isFallback = true;
     }
     
-    // Disable journal and sync for extreme bulk ingestion speed & zero transaction memory overhead
-    db.exec('PRAGMA journal_mode=OFF;');
+    // Resilient WASM PRAGMAs: Use FILE temp_store to prevent WASM heap sort OOM during index creation
+    db.exec('PRAGMA journal_mode=MEMORY;');
     db.exec('PRAGMA synchronous=OFF;');
+    db.exec('PRAGMA temp_store=FILE;');
+    db.exec('PRAGMA cache_size = -4000;');
     
-    // Initialize Routing Tables
+    // Drop legacy tables to guarantee clean schema initialization
     db.exec(`
-      CREATE TABLE IF NOT EXISTS routing_nodes (
-        id TEXT PRIMARY KEY,
+      DROP TABLE IF EXISTS routing_nodes;
+      DROP TABLE IF EXISTS routing_edges;
+      
+      CREATE TABLE routing_nodes (
+        id TEXT,
         lon REAL,
         lat REAL,
         elevation REAL
       );
-      CREATE TABLE IF NOT EXISTS routing_edges (
+      CREATE TABLE routing_edges (
         source TEXT,
         target TEXT,
         weight REAL,
-        is_highway BOOLEAN,
-        is_flood_risk BOOLEAN,
-        PRIMARY KEY (source, target)
+        is_highway INTEGER,
+        is_flood_risk INTEGER
       );
-      CREATE INDEX IF NOT EXISTS idx_nodes_spatial ON routing_nodes(lon, lat);
-      CREATE INDEX IF NOT EXISTS idx_edges_source ON routing_edges(source);
     `);
     
-    console.log('[SQLite OPFS] Tactical Routing Schema Initialized.');
+    console.log('[SQLite OPFS] Resilient Routing Schema (v16) Initialized.');
     self.postMessage({ type: 'DB_READY' });
-  } catch (err) {
+    self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'INFO', category: 'SQLITE_OPFS', message: 'OPFS SQLite storage (v16) initialized successfully.' } });
+  } catch (err: any) {
     console.error('[SQLite] Failed to initialize:', err);
+    self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'ERROR', category: 'SQLITE_ERROR', message: `DB Init Failure: ${err?.message || String(err)}` } });
   }
 }
 
@@ -77,21 +80,27 @@ self.onmessage = (event: MessageEvent) => {
       const geoJson = payload as FeatureCollection<LineString>;
       
       const processChunk = async () => {
-        db.exec('BEGIN TRANSACTION;');
-        
         let nodeCount = 0;
         let edgeCount = 0;
         let featureCount = 0;
+        const totalFeatures = geoJson.features.length;
 
-        const stmtNodes = db.prepare('INSERT OR IGNORE INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)');
-        const stmtEdges = db.prepare('INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)');
+        const insertedNodes = new Set<string>();
+        const round6 = (val: number) => Math.round(val * 1e6) / 1e6;
+
+        db.exec('BEGIN TRANSACTION;');
+
+        let stmtNodes = db.prepare('INSERT INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)');
+        let stmtEdges = db.prepare('INSERT INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)');
 
         for (const feature of geoJson.features) {
           featureCount++;
           
+          if (!feature.geometry || feature.geometry.type !== 'LineString') continue;
+
           const coords = feature.geometry.coordinates as [number, number][];
           const highwayType = feature.properties?.highway || 'unknown';
-          const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
+          const isHighway = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'].includes(highwayType);
           
           let multiplier = 1.0;
           if (highwayType === 'motorway' || highwayType === 'trunk') multiplier = 0.5;
@@ -100,16 +109,19 @@ self.onmessage = (event: MessageEvent) => {
 
           for (let i = 0; i < coords.length; i++) {
             const [lon, lat] = coords[i];
-            const nodeId = `${lon},${lat}`;
+            const nodeId = `${round6(lon)},${round6(lat)}`;
             
-            stmtNodes.bind([nodeId, lon, lat, getElevation(lon, lat)]);
-            stmtNodes.step();
-            stmtNodes.reset();
-            nodeCount++;
+            if (!insertedNodes.has(nodeId)) {
+              insertedNodes.add(nodeId);
+              stmtNodes.bind([nodeId, lon, lat, getElevation(lon, lat)]);
+              stmtNodes.step();
+              stmtNodes.reset();
+              nodeCount++;
+            }
 
             if (i < coords.length - 1) {
               const [nLon, nLat] = coords[i+1];
-              const targetId = `${nLon},${nLat}`;
+              const targetId = `${round6(nLon)},${round6(nLat)}`;
               
               const dist = getDistance(lon, lat, nLon, nLat);
               const isFloodRisk = false; 
@@ -127,60 +139,70 @@ self.onmessage = (event: MessageEvent) => {
               edgeCount++;
             }
           }
-          
-          stmtNodes.clearBindings();
-          stmtEdges.clearBindings();
-          
-          // Prevent SQLITE_NOMEM WASM out-of-memory by batching frequently to flush dirty pages.
-          // Since journal_mode=OFF, disk I/O is instant, so we can commit every 500 features.
-          if (featureCount % 500 === 0) {
+
+          if (featureCount % 2000 === 0) {
+            stmtNodes.finalize();
+            stmtEdges.finalize();
             db.exec('COMMIT;');
-            self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: geoJson.features.length } });
-            await new Promise(r => setTimeout(r, 0)); // Yield to event loop to flush IPC message!
+            
+            self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: totalFeatures } });
+            await new Promise(r => setTimeout(r, 0));
+            
             db.exec('BEGIN TRANSACTION;');
+            stmtNodes = db.prepare('INSERT INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)');
+            stmtEdges = db.prepare('INSERT INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)');
           }
         }
         
         stmtNodes.finalize();
         stmtEdges.finalize();
-        
         db.exec('COMMIT;');
+
+        // Build lean spatial B-Tree indices post-ingestion using file temp_store
+        console.log('[SQLite OPFS] Indexing spatial bounds post-ingestion...');
+        self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'INFO', category: 'SQLITE_OPFS', message: 'Creating spatial B-Tree indices post-ingestion...' } });
+        
+        db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_nodes_spatial ON routing_nodes(lon, lat);
+          CREATE INDEX IF NOT EXISTS idx_edges_source ON routing_edges(source);
+        `);
+
         if (isFallback) syncToIndexedDB(sqlite3Ref, db).catch(console.error);
 
-        console.log(`[SQLite] Ingested map chunk: ${nodeCount} nodes, ${edgeCount} edges`);
+        console.log(`[SQLite] Ingested map chunk successfully: ${nodeCount} nodes, ${edgeCount} edges`);
+        self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'INFO', category: 'SQLITE_OPFS', message: `Map ingestion completed successfully. Ingested ${nodeCount} nodes, ${edgeCount} edges.` } });
         self.postMessage({ type: 'CHUNK_LOADED', payload: { nodeCount, edgeCount } });
       };
       
       processChunk().catch(err => {
         console.error('Failed processing map chunk:', err);
+        self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'ERROR', category: 'SQLITE_INGEST_ERROR', message: `Map Ingestion Failure: ${err?.message || String(err)}` } });
         self.postMessage({ type: 'CHUNK_ERROR', payload: err.message || 'Unknown SQLite Error' });
-        try { db.exec('ROLLBACK;'); } catch (e) {}
+        try {
+          db.exec('ROLLBACK;');
+        } catch (e) {
+          // Ignore rollback error if no transaction is active
+        }
       });
       
     } else if (type === 'GET_BBOX_GRAPH') {
-      // Massive state-level routing optimization: only pull nodes within bounding box!
       const { minLon, minLat, maxLon, maxLat } = payload;
       
-      // Pull nodes in bbox
       const nodesResult = db.exec({
         sql: 'SELECT id, lon, lat FROM routing_nodes WHERE lon >= ? AND lon <= ? AND lat >= ? AND lat <= ?',
         bind: [minLon, maxLon, minLat, maxLat],
         returnValue: 'resultRows'
       });
       
-      // We will construct the adjacency list to send to the pathfinding worker
       const adjacencyList = new Map();
       
       if (nodesResult && nodesResult.length > 0) {
-        // Build an IN clause for the edges query
-        const ids = nodesResult.map((row: any) => `'${row[0]}'`).join(',');
-        
         const edgesResult = db.exec({
-          sql: `SELECT source, target, weight, is_highway, is_flood_risk FROM routing_edges WHERE source IN (${ids})`,
+          sql: `SELECT source, target, weight, is_highway, is_flood_risk FROM routing_edges WHERE source IN (SELECT id FROM routing_nodes WHERE lon >= ? AND lon <= ? AND lat >= ? AND lat <= ?)`,
+          bind: [minLon, maxLon, minLat, maxLat],
           returnValue: 'resultRows'
         });
 
-        // Initialize map
         nodesResult.forEach((row: any) => {
           adjacencyList.set(row[0], []);
         });
@@ -188,7 +210,6 @@ self.onmessage = (event: MessageEvent) => {
         if (edgesResult) {
           edgesResult.forEach((row: any) => {
             const [source, target, weight, is_highway, is_flood_risk] = row;
-            // The target might be just outside the bbox, which is fine, we just need the coord
             const targetCoords = target.split(',').map(Number);
             if (adjacencyList.has(source)) {
               adjacencyList.get(source).push({
@@ -204,8 +225,9 @@ self.onmessage = (event: MessageEvent) => {
       
       self.postMessage({ type: 'BBOX_GRAPH_RESULT', payload: { adjacencyList: Array.from(adjacencyList.entries()) } });
     }
-  } catch (err) {
-    db.exec('ROLLBACK;');
+  } catch (err: any) {
+    try { db.exec('ROLLBACK;'); } catch (e) {}
     console.error('Database operation failed:', err);
+    self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'ERROR', category: 'SQLITE_ERROR', message: `DB Op Error: ${err?.message || String(err)}` } });
   }
 };

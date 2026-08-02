@@ -23,9 +23,17 @@ dist-ssr
 *.sln
 *.sw?
 
-# Agent Planning Artifacts
-*Plan*.md
-*Walkthrough*.md
-*task*.md
+# Local Scratch & Test Artifacts
+*.png
+cmd.sh
+fetch_osm.cjs
+india_highways.json
+map_history.patch
+odisha_roads.json
+overpass*.json
+scratch/
+scratch_app.txt
+test-tile.js
+test.mvt
 .vercel
 .env*

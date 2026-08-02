@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
-import ChaosTesting from '../webfunctions/diagnostics/ChaosTesting';
+import { logger } from '../webfunctions/diagnostics/logger';
+import LogViewerModal from './components/LogViewerModal';
 import Map from './components/Map';
 import TriageDashboard from './components/TriageDashboard';
 import OpticalSync from './components/OpticalSync';
@@ -10,6 +11,7 @@ import type { Coordinate } from '../webfunctions/math/pathfinding';
 import { encode, decode } from '@msgpack/msgpack';
 import simplify from '@turf/simplify';
 import { sharedVictims, sharedAnomalies, sharedAssets, sharedBreadcrumbs, sharedDrawnFeatures, onSyncStatusChange } from '../webfunctions/sync/mesh';
+import { SAFE_ZONES } from '../webfunctions/math/safeZones';
 import { useCallback } from 'react';
 
 function getDistanceFromLatLonInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -44,9 +46,12 @@ export default function App() {
   const [syncBuffer, setSyncBuffer] = useState<Uint8Array>(new Uint8Array());
   const [isMeshSynced, setIsMeshSynced] = useState(false);
   const [isOffGridModalOpen, setIsOffGridModalOpen] = useState(false);
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
   const [bootState, setBootState] = useState<'CHECKING_MAP' | 'LOADING_MAP' | 'CHECKING_SERVER' | 'PROMPT_OFF_GRID' | 'READY'>('CHECKING_MAP');
   const [mapLoadProgress, setMapLoadProgress] = useState(0);
   const [isRouting, setIsRouting] = useState(false);
+  const [routingProgress, setRoutingProgress] = useState(0);
+  const [routingStage, setRoutingStage] = useState('');
   
   // Custom Targeting State
   const [isTargetingMode, setIsTargetingMode] = useState(false);
@@ -85,16 +90,24 @@ export default function App() {
 
     sqliteWorker.onmessage = (e) => {
       const { type, payload } = e.data;
-      if (type === 'DB_READY') {
+      if (type === 'SYSTEM_LOG') {
+        logger[payload.level.toLowerCase() as 'info' | 'warn' | 'error'](payload.category, payload.message, payload.details);
+      } else if (type === 'DB_READY') {
         setIsDbReady(true);
         setBootState('LOADING_MAP');
+        logger.info('SQLITE_INIT', 'OPFS Database Ready. Requesting map graph chunk...');
         fetch('/odisha_state_graph.geojson') // 100km radius graph
           .then(res => res.json())
           .then((data) => {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
+          })
+          .catch(err => {
+            logger.error('FETCH_ERROR', 'Failed to fetch map GeoJSON chunk', { error: err.message });
+            notify('Failed to load map data chunk', 'warning');
           });
       } else if (type === 'CHUNK_LOADED') {
         setMapLoadProgress(100);
+        logger.info('SQLITE_MAP', `Map chunk loaded into OPFS: ${payload.nodeCount} nodes, ${payload.edgeCount} edges.`);
         notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
         setBootState('CHECKING_SERVER');
         setTimeout(() => {
@@ -104,10 +117,12 @@ export default function App() {
         const { current, total } = payload;
         setMapLoadProgress(Math.floor((current / total) * 100));
       } else if (type === 'CHUNK_ERROR') {
+        logger.error('SQLITE_INGEST_ERROR', `Map ingestion failed: ${payload}`);
         notify(`Map Ingestion Failed: ${payload}`, 'warning');
         // Stop the loading state but don't soft-lock the UI in checking_server
         setBootState('PROMPT_OFF_GRID'); 
       } else if (type === 'BBOX_GRAPH_RESULT') {
+        logger.info('SQLITE_BBOX', `Extracted bbox subgraph with ${payload.adjacencyList.length} active nodes.`);
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
           if (routingRequestRef.current) {
@@ -125,7 +140,10 @@ export default function App() {
     
     pathWorker.current.onmessage = (e) => {
       const { type, payload } = e.data;
-      if (type === 'ROUTE_CALCULATED') {
+      if (type === 'ROUTE_PROGRESS') {
+        setRoutingProgress(payload.progress);
+        if (payload.stage) setRoutingStage(payload.stage);
+      } else if (type === 'ROUTE_CALCULATED') {
         const { insertionRoute, extractionRoute, safeZone } = payload;
         
         let combinedPath: Coordinate[] = [...insertionRoute.path];
@@ -136,6 +154,7 @@ export default function App() {
         setActiveRoute(combinedPath);
         setRouteStats({ insertion: insertionRoute, extraction: extractionRoute, safeZone });
         
+        setRoutingProgress(100);
         setIsRouting(false);
         // Auto-close sidebar on mobile after selecting a route so user can see the map
         if (window.innerWidth < 768) {
@@ -145,6 +164,7 @@ export default function App() {
         notify('Routing failed. Graph isolated.', 'warning');
         setActiveRoute([]);
         setRouteStats(null);
+        setRoutingProgress(0);
         setIsRouting(false);
       }
     };
@@ -211,21 +231,24 @@ export default function App() {
     if (activeRoutingRequest && pathWorker.current && sqliteWorkerRef.current) {
       const target = victims.find(v => v.id === activeRoutingRequest.victimId);
       if (target) {
-        let origin: Coordinate = [85.8245, 20.2961];
-        
-        if (userLocation) {
-          const distToCity = getDistanceFromLatLonInMeters(20.2961, 85.8245, userLocation[1], userLocation[0]);
-          if (distToCity > 100000) {
-            origin = [85.8245, 20.2961];
-          } else {
-            origin = userLocation;
-          }
-        }
+        const origin: Coordinate = userLocation || [85.8245, 20.2961];
 
-        const minLon = Math.min(origin[0], target.coordinates[0]) - 1.0;
-        const maxLon = Math.max(origin[0], target.coordinates[0]) + 1.0;
-        const minLat = Math.min(origin[1], target.coordinates[1]) - 1.0;
-        const maxLat = Math.max(origin[1], target.coordinates[1]) + 1.0;
+        const shelterLons = [
+          ...SAFE_ZONES.map(s => s.coordinates[0]),
+          ...drawnFeatures.features.filter(f => f.geometry.type === 'Point' && f.properties?.type === 'shelter').map(f => (f.geometry as GeoJSON.Point).coordinates[0])
+        ];
+        const shelterLats = [
+          ...SAFE_ZONES.map(s => s.coordinates[1]),
+          ...drawnFeatures.features.filter(f => f.geometry.type === 'Point' && f.properties?.type === 'shelter').map(f => (f.geometry as GeoJSON.Point).coordinates[1])
+        ];
+
+        const allLons = [origin[0], target.coordinates[0], ...shelterLons];
+        const allLats = [origin[1], target.coordinates[1], ...shelterLats];
+
+        const minLon = Math.min(...allLons) - 0.5;
+        const maxLon = Math.max(...allLons) + 0.5;
+        const minLat = Math.min(...allLats) - 0.5;
+        const maxLat = Math.max(...allLats) + 0.5;
 
         sqliteWorkerRef.current.postMessage({
           type: 'GET_BBOX_GRAPH',
@@ -549,7 +572,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <ChaosTesting />
+      <LogViewerModal isOpen={isLogModalOpen} onClose={() => setIsLogModalOpen(false)} />
       
       {/* Toast Notification Container */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-[90%] max-w-[400px]">
@@ -760,13 +783,22 @@ export default function App() {
             </p>
           </div>
           
-          <button 
-            onClick={() => setIsOffGridModalOpen(true)}
-            className="px-3 py-1.5 bg-gray-900 text-white text-xs font-bold rounded-lg hover:bg-gray-800 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            LOG
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button 
+              onClick={() => setIsLogModalOpen(true)}
+              className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 flex items-center gap-1 shadow-sm transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              LOGS
+            </button>
+            <button 
+              onClick={() => setIsOffGridModalOpen(true)}
+              className="px-3 py-1.5 bg-gray-900 text-white text-xs font-bold rounded-lg hover:bg-gray-800 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              LOG
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 flex flex-col overflow-y-auto">
@@ -783,6 +815,8 @@ export default function App() {
               }
               setRouteStats(null);
               setIsRouting(true);
+              setRoutingProgress(15);
+              setRoutingStage('Fetching road graph...');
               setActiveRoutingRequest({ victimId, resources });
             }}
             routeStats={routeStats}
@@ -790,6 +824,8 @@ export default function App() {
             assets={assets}
             onAddAsset={handleAddAsset}
             isRouting={isRouting}
+            routingProgress={routingProgress}
+            routingStage={routingStage}
           />
           
           <div className="p-6 bg-gray-50 border-t border-gray-100 pb-8 md:pb-6">

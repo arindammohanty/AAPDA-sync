@@ -29,14 +29,25 @@ self.onmessage = (e: MessageEvent) => {
     }
     
     // 1. Calculate Insertion Route (Start -> Target)
-    const insertionRoute = graph.findPath(start, target, anomalies, drawnFeatures, resources);
+    self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'INFO', category: 'PATHFINDER', message: `Executing Bidirectional A* from [${start}] to [${target}]` } });
+    self.postMessage({ type: 'ROUTE_PROGRESS', payload: { progress: 35, stage: 'Searching insertion path...' } });
+
+    const insertionRoute = graph.findPath(start, target, anomalies, drawnFeatures, resources, (pct) => {
+      self.postMessage({
+        type: 'ROUTE_PROGRESS',
+        payload: { progress: Math.min(68, Math.round(35 + (pct * 0.33))), stage: 'Searching insertion path...' }
+      });
+    });
     
     if (!insertionRoute) {
+      self.postMessage({ type: 'SYSTEM_LOG', payload: { level: 'WARN', category: 'PATHFINDER', message: 'No continuous road path found between start and target (Graph Isolated).' } });
       self.postMessage({ type: 'ROUTE_ERROR', payload: 'No insertion path found' });
       return;
     }
 
     // 2. Calculate Extraction Route (Target -> Nearest Safe Zone)
+    self.postMessage({ type: 'ROUTE_PROGRESS', payload: { progress: 70, stage: 'Evaluating rescue shelters...' } });
+
     let bestExtractionRoute: RouteStats | null = null;
     let bestSafeZone = null;
     let minDistance = Infinity;
@@ -51,21 +62,30 @@ self.onmessage = (e: MessageEvent) => {
 
     const allSafeZones = [...SAFE_ZONES, ...dynamicShelters];
 
-    // Sort safe zones by direct haversine distance to avoid running A* against every shelter on slow phone CPUs
+    // Sort safe zones by direct haversine distance
     const sortedSafeZones = allSafeZones.sort((a, b) => 
       getDistance(target, a.coordinates) - getDistance(target, b.coordinates)
     );
 
-    // Only attempt A* routing to the absolute closest shelter (and the second closest as a fallback)
-    for (const safeZone of sortedSafeZones.slice(0, 2)) {
-      const route = graph.findPath(target, safeZone.coordinates, anomalies, drawnFeatures, resources);
+    // Evaluate closest shelters and pick shortest road route
+    for (const safeZone of sortedSafeZones.slice(0, 3)) {
+      const route = graph.findPath(target, safeZone.coordinates, anomalies, drawnFeatures, resources, (pct) => {
+        self.postMessage({
+          type: 'ROUTE_PROGRESS',
+          payload: { progress: Math.min(95, Math.round(70 + (pct * 0.25))), stage: `Checking ${safeZone.name}...` }
+        });
+      });
       if (route && route.totalDistance < minDistance) {
         minDistance = route.totalDistance;
         bestExtractionRoute = route;
         bestSafeZone = safeZone;
-        break; // Found the optimal closest route, skip further expensive A* calculations
       }
     }
+
+    self.postMessage({ 
+      type: 'ROUTE_PROGRESS', 
+      payload: { progress: 100, stage: 'Route synchronized!' } 
+    });
 
     self.postMessage({ 
       type: 'ROUTE_CALCULATED', 
