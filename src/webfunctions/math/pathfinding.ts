@@ -125,8 +125,8 @@ export class PathGraph {
 
   // OSPF / Dijkstra's Search Algorithm - Dynamic Link-State Routing
   findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = [], drawnFeatures: FeatureCollection = { type: 'FeatureCollection', features: [] }, resources: string[] = []): RouteStats | null {
-    const startNodes = this.getClosestNodes(startRaw, 5); // Try top 5 closest nodes to escape isolated islands
-    const endNodes = this.getClosestNodes(endRaw, 5); // Try top 5 closest nodes to avoid isolated target segments
+    const startNodes = this.getClosestNodes(startRaw, 15); // Increased to 15 to escape deep off-road/isolated tracks
+    const endNodes = this.getClosestNodes(endRaw, 25); // Increased to 25 to guarantee finding a connected road near shelters
     
     if (startNodes.length === 0 || endNodes.length === 0) return null;
     

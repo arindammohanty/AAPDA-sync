@@ -777,6 +777,10 @@ export default function App() {
             onDeleteVictim={handleDeleteVictim}
             onUpdateStatus={handleUpdateStatus}
             onPlotRoute={(victimId, resources) => {
+              if (!userLocation && !isManualLocationSet) {
+                notify('GPS not found. Please set your location manually using the "Set Manual GPS" button!', 'warning');
+                return;
+              }
               setRouteStats(null);
               setIsRouting(true);
               setActiveRoutingRequest({ victimId, resources });
