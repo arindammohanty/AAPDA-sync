@@ -51,7 +51,7 @@ export function isPointInPolygon(point: Coordinate, polygon: Coordinate[][]): bo
 }
 
 export class PathGraph {
-  adjacencyList: Map<string, { node: Coordinate, weight: number, isFloodRisk: boolean }[]> = new Map();
+  adjacencyList: Map<string, { node: Coordinate, weight: number, isHighway: boolean, isFloodRisk: boolean }[]> = new Map();
   visitedEdges: Set<string> = new Set(); // Micro-Goal: Visited route memory cache
 
   addNode(coord: Coordinate) {
@@ -84,8 +84,9 @@ export class PathGraph {
     const isFloodRisk = false; 
 
     if (!this.adjacencyList.get(key1)?.some(e => e.node.join(',') === key2)) {
-      this.adjacencyList.get(key1)!.push({ node: coord2, weight: timeCostSeconds, isFloodRisk });
-      this.adjacencyList.get(key2)!.push({ node: coord1, weight: timeCostSeconds, isFloodRisk }); // Undirected
+      const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
+      this.adjacencyList.get(key1)!.push({ node: coord2, weight: timeCostSeconds, isHighway, isFloodRisk });
+      this.adjacencyList.get(key2)!.push({ node: coord1, weight: timeCostSeconds, isHighway, isFloodRisk }); // Undirected
     }
   }
 
