@@ -75,67 +75,76 @@ self.onmessage = (event: MessageEvent) => {
     if (type === 'LOAD_MAP_CHUNK') {
       const geoJson = payload as FeatureCollection<LineString>;
       
-      db.exec('BEGIN TRANSACTION;');
-      
-      let nodeCount = 0;
-      let edgeCount = 0;
-      let featureCount = 0;
-
-      geoJson.features.forEach(feature => {
-        featureCount++;
+      const processChunk = async () => {
+        db.exec('BEGIN TRANSACTION;');
         
-        const coords = feature.geometry.coordinates as [number, number][];
-        const highwayType = feature.properties?.highway || 'unknown';
-        const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
-        
-        let multiplier = 1.0;
-        if (highwayType === 'motorway' || highwayType === 'trunk') multiplier = 0.5;
-        else if (highwayType === 'primary') multiplier = 0.7;
-        else if (highwayType === 'secondary') multiplier = 0.9;
+        let nodeCount = 0;
+        let edgeCount = 0;
+        let featureCount = 0;
 
-        for (let i = 0; i < coords.length; i++) {
-          const [lon, lat] = coords[i];
-          const nodeId = `${lon},${lat}`;
+        for (const feature of geoJson.features) {
+          featureCount++;
           
-          db.exec({
-            sql: 'INSERT OR IGNORE INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)',
-            bind: [nodeId, lon, lat, getElevation(lon, lat)]
-          });
-          nodeCount++;
+          const coords = feature.geometry.coordinates as [number, number][];
+          const highwayType = feature.properties?.highway || 'unknown';
+          const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
+          
+          let multiplier = 1.0;
+          if (highwayType === 'motorway' || highwayType === 'trunk') multiplier = 0.5;
+          else if (highwayType === 'primary') multiplier = 0.7;
+          else if (highwayType === 'secondary') multiplier = 0.9;
 
-          if (i < coords.length - 1) {
-            const [nLon, nLat] = coords[i+1];
-            const targetId = `${nLon},${nLat}`;
+          for (let i = 0; i < coords.length; i++) {
+            const [lon, lat] = coords[i];
+            const nodeId = `${lon},${lat}`;
             
-            const dist = getDistance(lon, lat, nLon, nLat);
-            const isFloodRisk = false; 
-            
-            const finalWeight = dist * multiplier;
+            db.exec({
+              sql: 'INSERT OR IGNORE INTO routing_nodes (id, lon, lat, elevation) VALUES (?, ?, ?, ?)',
+              bind: [nodeId, lon, lat, getElevation(lon, lat)]
+            });
+            nodeCount++;
 
-            db.exec({
-              sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
-              bind: [nodeId, targetId, finalWeight, isHighway, isFloodRisk]
-            });
-            db.exec({
-              sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
-              bind: [targetId, nodeId, finalWeight, isHighway, isFloodRisk]
-            });
-            edgeCount++;
+            if (i < coords.length - 1) {
+              const [nLon, nLat] = coords[i+1];
+              const targetId = `${nLon},${nLat}`;
+              
+              const dist = getDistance(lon, lat, nLon, nLat);
+              const isFloodRisk = false; 
+              
+              const finalWeight = dist * multiplier;
+
+              db.exec({
+                sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
+                bind: [nodeId, targetId, finalWeight, isHighway, isFloodRisk]
+              });
+              db.exec({
+                sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
+                bind: [targetId, nodeId, finalWeight, isHighway, isFloodRisk]
+              });
+              edgeCount++;
+            }
+          }
+          
+          // Prevent SQLITE_NOMEM WASM out-of-memory and UI freezing by batching and yielding
+          if (featureCount % 1000 === 0) {
+            db.exec('COMMIT;');
+            self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: geoJson.features.length } });
+            await new Promise(r => setTimeout(r, 0)); // Yield to event loop to flush IPC message!
+            db.exec('BEGIN TRANSACTION;');
           }
         }
         
-        // Prevent SQLITE_NOMEM WASM out-of-memory by batching transactions
-        if (featureCount % 1000 === 0) {
-          db.exec('COMMIT;');
-          db.exec('BEGIN TRANSACTION;');
-        }
-      });
-      
-      db.exec('COMMIT;');
-      if (isFallback) syncToIndexedDB(sqlite3Ref, db).catch(console.error);
+        db.exec('COMMIT;');
+        if (isFallback) syncToIndexedDB(sqlite3Ref, db).catch(console.error);
 
-      console.log(`[SQLite] Ingested map chunk: ${nodeCount} nodes, ${edgeCount} edges`);
-      self.postMessage({ type: 'CHUNK_LOADED', payload: { nodeCount, edgeCount } });
+        console.log(`[SQLite] Ingested map chunk: ${nodeCount} nodes, ${edgeCount} edges`);
+        self.postMessage({ type: 'CHUNK_LOADED', payload: { nodeCount, edgeCount } });
+      };
+      
+      processChunk().catch(err => {
+        console.error('Failed processing map chunk:', err);
+        db.exec('ROLLBACK;');
+      });
       
     } else if (type === 'GET_BBOX_GRAPH') {
       // Massive state-level routing optimization: only pull nodes within bounding box!

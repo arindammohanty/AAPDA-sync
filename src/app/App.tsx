@@ -443,12 +443,14 @@ export default function App() {
   return (
     <div className="flex h-screen text-gray-800 overflow-hidden relative font-sans selection:bg-blue-500/30 bg-[#e8eaed]">
       {bootState !== 'READY' && (
-        <div className="absolute inset-0 z-[100] bg-gray-900 flex flex-col items-center justify-center text-white p-4">
-          <div className="w-full max-w-sm p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700">
-            <h1 className="text-2xl font-bold mb-6 flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></div>
-              AapdaSync Node
-            </h1>
+        <div className="absolute inset-0 z-[100] bg-gray-900 flex items-center justify-center text-white p-6 overflow-y-auto">
+          <div className="w-full max-w-4xl grid md:grid-cols-2 gap-8 items-start my-auto">
+            {/* Left Column: Loading Status */}
+            <div className="p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 flex flex-col justify-center">
+              <h1 className="text-2xl font-bold mb-6 flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></div>
+                AapdaSync Node
+              </h1>
             
             <div className="space-y-4 text-sm font-medium text-gray-400">
               <div className={`flex items-center gap-3 ${bootState === 'CHECKING_MAP' ? 'text-white' : 'text-emerald-400'}`}>
@@ -470,18 +472,57 @@ export default function App() {
               </div>
             </div>
 
-            {bootState === 'PROMPT_OFF_GRID' && (
-              <div className="mt-8 p-5 bg-amber-500/10 border border-amber-500/30 rounded-xl">
-                <h3 className="text-amber-500 font-bold mb-2">Mesh Servers Unreachable</h3>
-                <p className="text-xs text-amber-200/80 mb-5 leading-relaxed">No internet connection detected. You must operate off-grid using Optical (QR) Sync.</p>
-                <button 
-                  onClick={() => setBootState('READY')}
-                  className="w-full py-3 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 shadow-md transition-colors"
-                >
-                  Acknowledge Off-Grid Mode
-                </button>
+              {bootState === 'PROMPT_OFF_GRID' && (
+                <div className="mt-8 p-5 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                  <h3 className="text-amber-500 font-bold mb-2">Mesh Servers Unreachable</h3>
+                  <p className="text-xs text-amber-200/80 mb-5 leading-relaxed">No internet connection detected. You must operate off-grid using Optical (QR) Sync.</p>
+                  <button 
+                    onClick={() => setBootState('READY')}
+                    className="w-full py-3 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700 shadow-md transition-colors"
+                  >
+                    Acknowledge Off-Grid Mode
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: User Guide */}
+            <div className="p-8 bg-gray-800/50 rounded-2xl border border-gray-700 max-h-[70vh] overflow-y-auto">
+              <h2 className="text-xl font-bold text-blue-400 mb-4 sticky top-0 bg-gray-800/90 py-2 border-b border-gray-700 backdrop-blur-sm z-10">Tactical Field Guide</h2>
+              
+              <div className="space-y-6 text-sm text-gray-300">
+                <section>
+                  <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
+                    <span className="text-blue-500">1.</span> Core Functions
+                  </h3>
+                  <p className="leading-relaxed">Use the <strong>Priority Manifest</strong> (left sidebar) to log field reports. Plot rescue routes by selecting a victim and tapping "Plot Rescue Route". The onboard A* Pathfinding engine will dynamically navigate the topological map data entirely offline.</p>
+                </section>
+                
+                <section>
+                  <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
+                    <span className="text-emerald-500">2.</span> Off-Road Tactical Fallback
+                  </h3>
+                  <p className="leading-relaxed">If a victim is fully off-grid or stranded far from a mapped road, the router will automatically execute an <em>Off-Road Fallback</em>. It plots the optimal route to the absolute closest connected highway, and then draws a direct approach vector to the target coordinate.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
+                    <span className="text-amber-500">3.</span> Optical Sync (QR Air-Gapping)
+                  </h3>
+                  <p className="leading-relaxed">When deep in a dead zone, click <strong>Transmit</strong> to serialize your local database into a high-density QR code. A peer device can click <strong>Receive</strong> to scan this QR code, instantly resolving data conflicts between your offline devices.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
+                    <span className="text-rose-500">4.</span> Critical Hardware Warnings
+                  </h3>
+                  <ul className="list-disc pl-5 space-y-2 text-gray-400">
+                    <li><strong>Battery Savers:</strong> Aggressive battery savers (common on Android/Samsung) will kill background Web Workers, causing the "Plotting Route" screen to hang infinitely. Whitelist your browser.</li>
+                    <li><strong>GPS Upgrades:</strong> Internal tablet GPS modules often lose fix under canopy. We highly recommend pairing the tablet with a Bluetooth/USB GNSS receiver (e.g., Garmin GLO 2) for sub-meter tactical targeting.</li>
+                  </ul>
+                </section>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
