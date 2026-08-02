@@ -28,11 +28,8 @@ async function initDb() {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
     
-    // Use a versioned db name to force re-initialization when schema/data changes
-    const DB_NAME = '/aapda_routing_v7.sqlite3';
-    
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb(DB_NAME);
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v5.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
@@ -76,40 +73,15 @@ self.onmessage = (event: MessageEvent) => {
   if (!db) return;
 
   try {
-    if (type === 'LOAD_MAP_URL') {
-      const url = payload;
-      fetch(url)
-        .then(res => res.json())
-        .then((geoJson: FeatureCollection<LineString>) => {
-          processMapChunk(geoJson);
-        })
-        .catch(err => {
-          console.error('[SQLite] Failed to load map URL:', err);
-        });
-    } else if (type === 'LOAD_MAP_CHUNK') {
+    if (type === 'LOAD_MAP_CHUNK') {
       const geoJson = payload as FeatureCollection<LineString>;
-      processMapChunk(geoJson);
-    }
-    
-    function processMapChunk(geoJson: FeatureCollection<LineString>) {
+      
+      db.exec('BEGIN TRANSACTION;');
       
       let nodeCount = 0;
       let edgeCount = 0;
-      
-      const BATCH_SIZE = 5000;
-      let featureIndex = 0;
-
-      db.exec('BEGIN TRANSACTION;');
 
       geoJson.features.forEach(feature => {
-        featureIndex++;
-        
-        // Commit and restart transaction periodically to prevent SQLITE_NOMEM in WASM heap
-        if (featureIndex % BATCH_SIZE === 0) {
-          db.exec('COMMIT;');
-          db.exec('BEGIN TRANSACTION;');
-        }
-        
         const coords = feature.geometry.coordinates as [number, number][];
         const highwayType = feature.properties?.highway || 'unknown';
         const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
@@ -157,9 +129,8 @@ self.onmessage = (event: MessageEvent) => {
 
       console.log(`[SQLite] Ingested map chunk: ${nodeCount} nodes, ${edgeCount} edges`);
       self.postMessage({ type: 'CHUNK_LOADED', payload: { nodeCount, edgeCount } });
-    }
-    
-    if (type === 'GET_BBOX_GRAPH') {
+      
+    } else if (type === 'GET_BBOX_GRAPH') {
       // Massive state-level routing optimization: only pull nodes within bounding box!
       const { minLon, minLat, maxLon, maxLat } = payload;
       

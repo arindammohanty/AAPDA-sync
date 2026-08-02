@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-const data = fs.readFileSync('/home/arindam/AAPDA-sync/odisha_roads.json', 'utf8');
+const data = fs.readFileSync('/home/arindam/AAPDA-sync/overpass_large.json', 'utf8');
 const osm = JSON.parse(data);
 const nodes = {};
 osm.elements.forEach(e => {
@@ -34,5 +34,5 @@ const geojson = {
   features: features
 };
 
-fs.writeFileSync('/home/arindam/AAPDA-sync/public/odisha_state_graph.geojson', JSON.stringify(geojson));
-console.log(`Successfully wrote ${features.length} real OSM roads to public/odisha_state_graph.geojson`);
+fs.writeFileSync('/home/arindam/AAPDA-sync/public/bhubaneshwar_roads_massive.geojson', JSON.stringify(geojson));
+console.log('Successfully wrote ' + features.length + ' real OSM roads to bhubaneshwar_roads_massive.geojson');

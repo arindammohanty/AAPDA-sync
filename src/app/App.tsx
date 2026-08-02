@@ -38,6 +38,7 @@ export default function App() {
   const [activeRoute, setActiveRoute] = useState<Coordinate[]>([]);
   const [routeStats, setRouteStats] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
+  const [isDbReady, setIsDbReady] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [syncBuffer, setSyncBuffer] = useState<Uint8Array>(new Uint8Array());
@@ -59,10 +60,10 @@ export default function App() {
     hazardType: 'GAS_LEAK'
   });
   
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const pathWorker = useRef<Worker | null>(null);
   const sqliteWorkerRef = useRef<Worker | null>(null);
   const routingRequestRef = useRef<any>(null);
-  const hasBootedRef = useRef(false);
 
   const notify = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -84,17 +85,19 @@ export default function App() {
     sqliteWorker.onmessage = (e) => {
       const { type, payload } = e.data;
       if (type === 'DB_READY') {
+        setIsDbReady(true);
         setBootState('LOADING_MAP');
-        sqliteWorker.postMessage({ type: 'LOAD_MAP_URL', payload: '/odisha_state_graph.geojson' });
+        fetch('/bhubaneshwar_roads_massive.geojson') // 100km radius graph
+          .then(res => res.json())
+          .then((data) => {
+            sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
+          });
       } else if (type === 'CHUNK_LOADED') {
-        if (!hasBootedRef.current) {
-          hasBootedRef.current = true;
-          notify(`Map backbone loaded: ${payload.nodeCount} nodes.`, 'success');
-          setBootState('CHECKING_SERVER');
-          setTimeout(() => {
-            setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
-          }, 3000);
-        }
+        notify(`Map module loaded: ${payload.nodeCount} nodes indexed.`, 'success');
+        setBootState('CHECKING_SERVER');
+        setTimeout(() => {
+          setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
+        }, 3000);
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
@@ -236,7 +239,6 @@ export default function App() {
     }
   }, [activeRoutingRequest, victims, userLocation, anomalies, breadcrumbs, drawnFeatures]);
 
-
   // Breadcrumb Trail Recording Logic
   useEffect(() => {
     if (userLocation) {
@@ -272,6 +274,22 @@ export default function App() {
     }
   }, [victims, drawnFeatures, breadcrumbs]);
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !sqliteWorkerRef.current) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        sqliteWorkerRef.current!.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
+        notify('Processing Map Module...', 'info');
+      } catch (err) {
+        notify('Invalid Map Chunk format.', 'warning');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Decode incoming payload
   const handlePayloadReceived = (data: Uint8Array) => {
@@ -694,22 +712,30 @@ export default function App() {
           />
           
           <div className="p-6 bg-gray-50 border-t border-gray-100 pb-8 md:pb-6">
-            <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2 flex justify-between">
-              <span>OPFS Modules</span>
-              <span className="text-emerald-500 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
-              </span>
-            </h3>
-            <p className="text-[10px] text-gray-500 mb-3">AapdaSync relies on Origin Private File System for persisting massive local routing meshes.</p>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                OPFS Modules
+              </h3>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isDbReady ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+                <span className="text-[10px] font-bold text-gray-500">{isDbReady ? 'ONLINE' : 'BOOTING'}</span>
+              </div>
+            </div>
             <button 
-              onClick={() => {
-                notify('Manual map ingestion disabled. State-wide chunk active.', 'info');
-              }}
-              className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!isDbReady}
+              className="w-full min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 bg-white border border-gray-200 shadow-sm text-sm font-semibold text-gray-700 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed outline-none focus:ring-2 focus:ring-blue-500"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              State-Wide Routing Active
+              Inject Map Chunk
             </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept=".geojson,.json" 
+              onChange={handleFileUpload} 
+            />
           </div>
 
           <div className="p-6 bg-white border-t border-gray-100 pb-12 md:pb-6">
