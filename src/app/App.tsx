@@ -493,23 +493,30 @@ export default function App() {
               <div className="space-y-6 text-sm text-gray-300">
                 <section>
                   <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
-                    <span className="text-blue-500">1.</span> Core Functions
+                    <span className="text-blue-500">1.</span> Mapping & Tracking
                   </h3>
-                  <p className="leading-relaxed">Use the <strong>Priority Manifest</strong> (left sidebar) to log field reports. Plot rescue routes by selecting a victim and tapping "Plot Rescue Route". The onboard A* Pathfinding engine will dynamically navigate the topological map data entirely offline.</p>
+                  <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                    <li><strong>Field Reports:</strong> Use the Priority Manifest to log victims, hazards (e.g., floods, gas leaks), and active assets.</li>
+                    <li><strong>Custom Pins:</strong> You can drop custom markers for rescue shelters, hazard zones, or manually set your own GPS location if your hardware fails to lock onto satellites.</li>
+                  </ul>
                 </section>
                 
                 <section>
                   <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
-                    <span className="text-emerald-500">2.</span> Off-Road Tactical Fallback
+                    <span className="text-emerald-500">2.</span> Tactical Routing & Transport
                   </h3>
-                  <p className="leading-relaxed">If a victim is fully off-grid or stranded far from a mapped road, the router will automatically execute an <em>Off-Road Fallback</em>. It plots the optimal route to the absolute closest connected highway, and then draws a direct approach vector to the target coordinate.</p>
+                  <p className="leading-relaxed mb-2">Select a victim in the manifest and tap "Plot Rescue Route" to invoke the onboard A* engine over the massive offline road graph.</p>
+                  <ul className="list-disc pl-5 space-y-1 text-gray-300">
+                    <li><strong>Dynamic Hazard Avoidance:</strong> The router actively avoids user-marked flood zones and pit-like areas by dynamically increasing their traversal cost.</li>
+                    <li><strong>Off-Road Fallback:</strong> If a victim is isolated from the main highway grid, the router will automatically stitch an off-grid vector to the nearest accessible road.</li>
+                  </ul>
                 </section>
 
                 <section>
                   <h3 className="text-white font-semibold flex items-center gap-2 mb-2">
                     <span className="text-amber-500">3.</span> Optical Sync (QR Air-Gapping)
                   </h3>
-                  <p className="leading-relaxed">When deep in a dead zone, click <strong>Transmit</strong> to serialize your local database into a high-density QR code. A peer device can click <strong>Receive</strong> to scan this QR code, instantly resolving data conflicts between your offline devices.</p>
+                  <p className="leading-relaxed">When the WebRTC Mesh completely fails in deep dead zones, use <strong>Optical Sync</strong>. Click <strong>Transmit</strong> to serialize your local state into a high-density QR payload. Another operative can click <strong>Receive</strong> to scan and seamlessly merge the databases offline.</p>
                 </section>
 
                 <section>
@@ -517,8 +524,8 @@ export default function App() {
                     <span className="text-rose-500">4.</span> Critical Hardware Warnings
                   </h3>
                   <ul className="list-disc pl-5 space-y-2 text-gray-400">
-                    <li><strong>Battery Savers:</strong> Aggressive battery savers (common on Android/Samsung) will kill background Web Workers, causing the "Plotting Route" screen to hang infinitely. Whitelist your browser.</li>
-                    <li><strong>GPS Upgrades:</strong> Internal tablet GPS modules often lose fix under canopy. We highly recommend pairing the tablet with a Bluetooth/USB GNSS receiver (e.g., Garmin GLO 2) for sub-meter tactical targeting.</li>
+                    <li><strong>Battery Savers:</strong> Aggressive OS-level battery optimizers (common on Android tablets) will assassinate the routing Web Workers mid-calculation. Whitelist the browser immediately!</li>
+                    <li><strong>GPS Drift:</strong> Internal tablet GPS is inaccurate under canopy. We highly recommend pairing via Bluetooth to an external GNSS receiver (e.g., Garmin GLO 2).</li>
                   </ul>
                 </section>
               </div>

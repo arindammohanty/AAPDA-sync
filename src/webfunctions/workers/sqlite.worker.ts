@@ -126,7 +126,8 @@ self.onmessage = (event: MessageEvent) => {
           }
           
           // Prevent SQLITE_NOMEM WASM out-of-memory and UI freezing by batching and yielding
-          if (featureCount % 1000 === 0) {
+          // Increased batch size to 10,000 to prevent massive OPFS fsync disk I/O bottleneck
+          if (featureCount % 10000 === 0) {
             db.exec('COMMIT;');
             self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: geoJson.features.length } });
             await new Promise(r => setTimeout(r, 0)); // Yield to event loop to flush IPC message!
