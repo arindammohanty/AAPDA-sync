@@ -21,13 +21,6 @@ clientsClaim();
           return caches.delete(cacheName);
         })
       );
-    }).then(() => {
-      // Force all clients to reload once to pick up the fresh network assets
-      return (self as any).clients.matchAll({ type: 'window' }).then((windowClients: any) => {
-        windowClients.forEach((windowClient: any) => {
-          windowClient.navigate(windowClient.url);
-        });
-      });
     })
   );
 });
