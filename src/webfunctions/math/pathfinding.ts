@@ -109,150 +109,138 @@ export class PathGraph {
     }
   }
 
-  getClosestNode(target: Coordinate): Coordinate | null {
-    let closestNode: Coordinate | null = null;
-    let minDistance = Infinity;
+  getClosestNodes(target: Coordinate, count: number = 5): Coordinate[] {
+    const nodes: {coord: Coordinate, dist: number}[] = [];
 
     for (const key of this.adjacencyList.keys()) {
       const [lon, lat] = key.split(',').map(Number);
       const coord: Coordinate = [lon, lat];
       const dist = getDistance(target, coord);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestNode = coord;
-      }
+      nodes.push({ coord, dist });
     }
-    return closestNode;
+    
+    nodes.sort((a, b) => a.dist - b.dist);
+    return nodes.slice(0, count).map(n => n.coord);
   }
 
   // OSPF / Dijkstra's Search Algorithm - Dynamic Link-State Routing
   findPath(startRaw: Coordinate, endRaw: Coordinate, anomalies: { coordinates: Coordinate, type: string }[] = [], drawnFeatures: FeatureCollection = { type: 'FeatureCollection', features: [] }, resources: string[] = []): RouteStats | null {
-    const start = this.getClosestNode(startRaw);
-    const end = this.getClosestNode(endRaw);
-
-    if (!start || !end) return null;
+    const startNodes = this.getClosestNodes(startRaw, 5); // Try top 5 closest nodes to escape isolated islands
+    const endNodes = this.getClosestNodes(endRaw, 1);
     
-    const startKey = start.join(',');
+    if (startNodes.length === 0 || endNodes.length === 0) return null;
+    
+    const end = endNodes[0];
     const endKey = end.join(',');
-
-    const openSet = new Set<string>([startKey]);
-    const cameFrom = new Map<string, string>();
     
-    const gScore = new Map<string, number>();
-    gScore.set(startKey, 0);
+    let bestPartialStats: RouteStats | null = null;
+    let minDistanceToEnd = Infinity;
 
-    // OSPF/Dijkstra fallback removed. Using A* heuristic for efficient routing.
-    // The fScore incorporates the actual traversal time (gScore) and an optimistic remaining time (hScore).
-    const fScore = new Map<string, number>();
-    fScore.set(startKey, getDistance(start, endRaw) / (90 * (1000 / 3600)));
+    for (const start of startNodes) {
+      const startKey = start.join(',');
+      const openSet = new Set<string>([startKey]);
+      const cameFrom = new Map<string, string>();
+      const gScore = new Map<string, number>();
+      gScore.set(startKey, 0);
+      const fScore = new Map<string, number>();
+      fScore.set(startKey, getDistance(start, endRaw) / (90 * (1000 / 3600)));
 
-    while (openSet.size > 0) {
-      let currentKey = '';
-      let minF = Infinity;
+      let found = false;
 
-      for (const key of openSet) {
-        const score = fScore.get(key);
-        if (score !== undefined && score < minF) {
-          minF = score;
-          currentKey = key;
-        }
-      }
+      while (openSet.size > 0) {
+        let currentKey = '';
+        let minF = Infinity;
 
-      if (!currentKey) break;
-
-      if (currentKey === endKey) {
-        return this.reconstructPath(cameFrom, currentKey);
-      }
-
-      openSet.delete(currentKey);
-
-      const neighbors = this.adjacencyList.get(currentKey) || [];
-      for (const neighbor of neighbors) {
-        const neighborKey = neighbor.node.join(',');
-        
-        let traversalCost = neighbor.weight;
-        
-        // Resource-Aware Mitigation: If edge has a natural flood penalty and a Boat is deployed, remove the 5x penalty
-        if (neighbor.isFloodRisk && (resources.includes('Boat') || resources.includes('Amphibious'))) {
-          traversalCost = traversalCost / 5.0; 
-        }
-        
-        // Hazard Avoidance: Dynamically penalize edges near reported anomalies
-        for (const anomaly of anomalies) {
-          const distToHazard = getDistance(neighbor.node, anomaly.coordinates);
-          if (distToHazard < 400) { // 400 meter danger radius
-            traversalCost += 3600; // Add 1 hour penalty per nearby hazard
+        for (const key of openSet) {
+          const score = fScore.get(key);
+          if (score !== undefined && score < minF) {
+            minF = score;
+            currentKey = key;
           }
         }
-        
-        // Visual Obstacles (Drawn Features) Penalty
-        for (const feature of drawnFeatures.features) {
-          if (feature.geometry.type === 'Point' && feature.properties?.type === 'risk') {
-            const distToHazard = getDistance(neighbor.node, feature.geometry.coordinates as Coordinate);
-            if (distToHazard < 400) {
-              traversalCost += 3600; // 1 hour penalty
-            }
-          } else if (feature.geometry.type === 'Polygon' && feature.properties?.type === 'flood') {
-            const polygonCoords = feature.geometry.coordinates as Coordinate[][];
-            if (polygonCoords && polygonCoords.length > 0) {
-              if (isPointInPolygon(neighbor.node, polygonCoords)) {
-                if (resources.includes('Boat') || resources.includes('Amphibious')) {
-                  // Boats pass freely through drawn flood zones
-                } else {
-                  traversalCost += 3600 * 5; // massive 5 hour penalty for traversing through flood water
-                }
+
+        if (!currentKey) break;
+
+        if (currentKey === endKey) {
+          found = true;
+          break;
+        }
+
+        openSet.delete(currentKey);
+
+        const neighbors = this.adjacencyList.get(currentKey) || [];
+        for (const neighbor of neighbors) {
+          const neighborKey = neighbor.node.join(',');
+          
+          let traversalCost = neighbor.weight;
+          
+          if (neighbor.isFloodRisk && (resources.includes('Boat') || resources.includes('Amphibious'))) {
+            traversalCost = traversalCost / 5.0; 
+          }
+          
+          for (const anomaly of anomalies) {
+            if (getDistance(neighbor.node, anomaly.coordinates) < 400) traversalCost += 3600;
+          }
+          
+          for (const feature of drawnFeatures.features) {
+            if (feature.geometry.type === 'Point' && feature.properties?.type === 'risk') {
+              if (getDistance(neighbor.node, feature.geometry.coordinates as Coordinate) < 400) traversalCost += 3600;
+            } else if (feature.geometry.type === 'Polygon' && feature.properties?.type === 'flood') {
+              const polygonCoords = feature.geometry.coordinates as Coordinate[][];
+              if (polygonCoords && polygonCoords.length > 0 && isPointInPolygon(neighbor.node, polygonCoords)) {
+                if (!resources.includes('Boat') && !resources.includes('Amphibious')) traversalCost += 3600 * 5;
               }
             }
           }
-        }
-        
-        // VISITED PATH HEURISTIC: If we traversed this edge before, heavily prefer it! (Multiplier 0.2)
-        const edgeId1 = `${currentKey}-${neighborKey}`;
-        const edgeId2 = `${neighborKey}-${currentKey}`;
-        const isVisited = this.visitedEdges.has(edgeId1) || this.visitedEdges.has(edgeId2);
-        
-        if (isVisited) traversalCost *= 0.2;
-
-        const tentative_gScore = (gScore.get(currentKey) ?? Infinity) + traversalCost;
-
-        if (tentative_gScore < (gScore.get(neighborKey) ?? Infinity)) {
-          cameFrom.set(neighborKey, currentKey);
-          gScore.set(neighborKey, tentative_gScore);
           
-          // Calculate A* Heuristic (Admissible optimistic time cost in seconds assuming 90km/h max speed)
-          const hScore = getDistance(neighbor.node, endRaw) / (90 * (1000 / 3600));
-          fScore.set(neighborKey, tentative_gScore + hScore); // A* heuristic cost
-          openSet.add(neighborKey);
+          const edgeId1 = `${currentKey}-${neighborKey}`;
+          const edgeId2 = `${neighborKey}-${currentKey}`;
+          if (this.visitedEdges.has(edgeId1) || this.visitedEdges.has(edgeId2)) traversalCost *= 0.2;
+
+          const tentative_gScore = (gScore.get(currentKey) ?? Infinity) + traversalCost;
+
+          if (tentative_gScore < (gScore.get(neighborKey) ?? Infinity)) {
+            cameFrom.set(neighborKey, currentKey);
+            gScore.set(neighborKey, tentative_gScore);
+            fScore.set(neighborKey, tentative_gScore + (getDistance(neighbor.node, endRaw) / (90 * (1000 / 3600))));
+            openSet.add(neighborKey);
+          }
+        }
+      }
+
+      if (found) {
+        const stats = this.reconstructPath(cameFrom, endKey);
+        stats.path.unshift(startRaw);
+        stats.path.push(endRaw);
+        const offRoadDist = getDistance(startRaw, start) + getDistance(end, endRaw);
+        stats.totalDistance += offRoadDist;
+        stats.travelTimeMinutes += Math.ceil((offRoadDist / (15 * (1000 / 3600))) / 60);
+        return stats;
+      }
+
+      // Track fallback if isolated
+      if (gScore.size > 0) {
+        for (const key of gScore.keys()) {
+          const [lon, lat] = key.split(',').map(Number);
+          const dist = getDistance([lon, lat], endRaw);
+          if (dist < minDistanceToEnd) {
+            minDistanceToEnd = dist;
+            bestPartialStats = this.reconstructPath(cameFrom, key);
+          }
         }
       }
     }
 
-    // Tactical Fallback: If the graph is isolated (disconnected OSM roads), 
-    // find the node we DID reach that is closest to the destination, and go off-road from there.
-    if (gScore.size > 0) {
-      let closestReachedKey = startKey;
-      let minDistanceToEnd = Infinity;
-      
-      for (const key of gScore.keys()) {
-        const [lon, lat] = key.split(',').map(Number);
-        const dist = getDistance([lon, lat], endRaw);
-        if (dist < minDistanceToEnd) {
-          minDistanceToEnd = dist;
-          closestReachedKey = key;
-        }
-      }
-      
-      const partialStats = this.reconstructPath(cameFrom, closestReachedKey);
-      // Append the final off-road vector directly to the target
-      partialStats.path.push(endRaw);
-      const offRoadDist = getDistance(partialStats.path[partialStats.path.length - 2], endRaw);
-      partialStats.totalDistance += offRoadDist;
-      partialStats.travelTimeMinutes += Math.ceil((offRoadDist / (15 * (1000 / 3600))) / 60); // assume 15km/h off-road
-      
-      return partialStats;
+    if (bestPartialStats) {
+      bestPartialStats.path.unshift(startRaw);
+      bestPartialStats.path.push(endRaw);
+      const offRoadDist = getDistance(startRaw, bestPartialStats.path[1]) + getDistance(bestPartialStats.path[bestPartialStats.path.length - 2], endRaw);
+      bestPartialStats.totalDistance += offRoadDist;
+      bestPartialStats.travelTimeMinutes += Math.ceil((offRoadDist / (15 * (1000 / 3600))) / 60);
+      return bestPartialStats;
     }
 
-    return null; // Absolute failure (should theoretically never hit if start node exists)
+    return null; 
   }
 
   private reconstructPath(cameFrom: Map<string, string>, currentKey: string): RouteStats {
