@@ -7,7 +7,6 @@ import OpticalSync from './components/OpticalSync';
 import { rankVictims } from '../webfunctions/math/triage';
 import type { Victim, TriageStatus } from '../webfunctions/math/triage';
 import type { Coordinate } from '../webfunctions/math/pathfinding';
-import type { FeatureCollection, Point } from 'geojson';
 import { encode, decode } from '@msgpack/msgpack';
 import simplify from '@turf/simplify';
 import { sharedVictims, sharedAnomalies, sharedAssets, sharedBreadcrumbs, sharedDrawnFeatures, onSyncStatusChange } from '../webfunctions/sync/mesh';
@@ -254,7 +253,7 @@ export default function App() {
       // Simplify polygons for QR density limits
       const simplifiedFeatures = drawnFeatures.features.map(f => {
         if (f.geometry.type === 'Polygon') {
-          const coords = f.geometry.coordinates;
+          const coords = (f.geometry as GeoJSON.Polygon).coordinates;
           if (coords && coords[0] && coords[0].length >= 4) {
             try {
               return simplify(f as any, { tolerance: 0.0001, highQuality: false });
@@ -290,7 +289,7 @@ export default function App() {
   // Decode incoming payload
   const handlePayloadReceived = (data: Uint8Array) => {
     try {
-      const decodedData = decode(data) as { victims?: any[], features?: any[] } | any[];
+      const decodedData = decode(data) as { victims?: any[], features?: any[], trails?: any[] } | any[];
       let incomingVictims: any[] = [];
       let incomingFeatures: any[] = [];
       

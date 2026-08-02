@@ -42,9 +42,9 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
   const currentPolygonCoords = useRef<[number, number][]>([]);
 
   // Stable Refs for Callbacks and State
-  const callbacksRef = useRef({ onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate: (coords: [number, number]) => {} });
+  const callbacksRef = useRef({ onUserLocationUpdate, onGeolocationError, onMapClick, addCoordinate: (_coords: [number, number]) => {} });
   const drawModeRef = useRef(drawMode);
-  const keyHandlerRef = useRef<(e: KeyboardEvent) => void>();
+  const keyHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
 
   useEffect(() => {
     drawModeRef.current = drawMode;
@@ -114,7 +114,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
       }
     });
 
-    geolocate.on('error', (e: any) => {
+    geolocate.on('error', (_e: any) => {
       console.warn('Geolocation failed (laptop/permissions).');
       if (callbacksRef.current.onGeolocationError) {
         callbacksRef.current.onGeolocationError();
@@ -401,7 +401,7 @@ export default function Map({ victims = [], anomalies = [], breadcrumbs = [], lo
       el.title = 'Dynamic Rescue Shelter';
       
       const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-        .setLngLat(f.geometry.coordinates as [number, number])
+        .setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number])
         .addTo(map.current!);
         
       markersRef.current[f.properties?.id || Math.random().toString()] = marker;
