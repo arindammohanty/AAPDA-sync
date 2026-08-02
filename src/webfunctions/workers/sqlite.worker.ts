@@ -28,15 +28,16 @@ async function initDb() {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v7.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v8.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
       isFallback = true;
     }
     
-    db.exec('PRAGMA journal_mode=WAL;');
-    db.exec('PRAGMA synchronous=NORMAL;');
+    // Disable journal and sync for extreme bulk ingestion speed & zero transaction memory overhead
+    db.exec('PRAGMA journal_mode=OFF;');
+    db.exec('PRAGMA synchronous=OFF;');
     
     // Initialize Routing Tables
     db.exec(`
@@ -128,8 +129,8 @@ self.onmessage = (event: MessageEvent) => {
           }
           
           // Prevent SQLITE_NOMEM WASM out-of-memory and UI freezing by batching and yielding
-          // Increased batch size to 10,000 to prevent massive OPFS fsync disk I/O bottleneck
-          if (featureCount % 10000 === 0) {
+          // Increased batch size to 5000 with journal_mode=OFF for maximum speed without memory crashes
+          if (featureCount % 5000 === 0) {
             db.exec('COMMIT;');
             self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: geoJson.features.length } });
             await new Promise(r => setTimeout(r, 0)); // Yield to event loop to flush IPC message!

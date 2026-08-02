@@ -103,6 +103,10 @@ export default function App() {
       } else if (type === 'CHUNK_PROGRESS') {
         const { current, total } = payload;
         setMapLoadProgress(Math.floor((current / total) * 100));
+      } else if (type === 'CHUNK_ERROR') {
+        notify(`Map Ingestion Failed: ${payload}`, 'warning');
+        // Stop the loading state
+        setBootState('CHECKING_SERVER'); 
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
