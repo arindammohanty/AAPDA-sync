@@ -29,7 +29,7 @@ async function initDb() {
     sqlite3Ref = sqlite3;
     
     // Use a versioned db name to force re-initialization when schema/data changes
-    const DB_NAME = '/aapda_routing_v6.sqlite3';
+    const DB_NAME = '/aapda_routing_v7.sqlite3';
     
     if ((sqlite3 as any).opfs) {
       db = new (sqlite3 as any).oo1.OpfsDb(DB_NAME);
@@ -93,12 +93,23 @@ self.onmessage = (event: MessageEvent) => {
     
     function processMapChunk(geoJson: FeatureCollection<LineString>) {
       
-      db.exec('BEGIN TRANSACTION;');
-      
       let nodeCount = 0;
       let edgeCount = 0;
+      
+      const BATCH_SIZE = 5000;
+      let featureIndex = 0;
+
+      db.exec('BEGIN TRANSACTION;');
 
       geoJson.features.forEach(feature => {
+        featureIndex++;
+        
+        // Commit and restart transaction periodically to prevent SQLITE_NOMEM in WASM heap
+        if (featureIndex % BATCH_SIZE === 0) {
+          db.exec('COMMIT;');
+          db.exec('BEGIN TRANSACTION;');
+        }
+        
         const coords = feature.geometry.coordinates as [number, number][];
         const highwayType = feature.properties?.highway || 'unknown';
         const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
