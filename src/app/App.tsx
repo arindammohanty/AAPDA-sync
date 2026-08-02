@@ -85,11 +85,7 @@ export default function App() {
       const { type, payload } = e.data;
       if (type === 'DB_READY') {
         setBootState('LOADING_MAP');
-        fetch('/odisha_state_graph.geojson') // Massive State-Wide Graph
-          .then(res => res.json())
-          .then((data) => {
-            sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
-          });
+        sqliteWorker.postMessage({ type: 'LOAD_MAP_URL', payload: '/odisha_state_graph.geojson' });
       } else if (type === 'CHUNK_LOADED') {
         if (!hasBootedRef.current) {
           hasBootedRef.current = true;

@@ -76,8 +76,22 @@ self.onmessage = (event: MessageEvent) => {
   if (!db) return;
 
   try {
-    if (type === 'LOAD_MAP_CHUNK') {
+    if (type === 'LOAD_MAP_URL') {
+      const url = payload;
+      fetch(url)
+        .then(res => res.json())
+        .then((geoJson: FeatureCollection<LineString>) => {
+          processMapChunk(geoJson);
+        })
+        .catch(err => {
+          console.error('[SQLite] Failed to load map URL:', err);
+        });
+    } else if (type === 'LOAD_MAP_CHUNK') {
       const geoJson = payload as FeatureCollection<LineString>;
+      processMapChunk(geoJson);
+    }
+    
+    function processMapChunk(geoJson: FeatureCollection<LineString>) {
       
       db.exec('BEGIN TRANSACTION;');
       
@@ -132,8 +146,9 @@ self.onmessage = (event: MessageEvent) => {
 
       console.log(`[SQLite] Ingested map chunk: ${nodeCount} nodes, ${edgeCount} edges`);
       self.postMessage({ type: 'CHUNK_LOADED', payload: { nodeCount, edgeCount } });
-      
-    } else if (type === 'GET_BBOX_GRAPH') {
+    }
+    
+    if (type === 'GET_BBOX_GRAPH') {
       // Massive state-level routing optimization: only pull nodes within bounding box!
       const { minLon, minLat, maxLon, maxLat } = payload;
       
