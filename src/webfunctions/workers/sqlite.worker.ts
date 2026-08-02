@@ -28,7 +28,7 @@ async function initDb() {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v8.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v9.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
@@ -128,9 +128,12 @@ self.onmessage = (event: MessageEvent) => {
             }
           }
           
-          // Prevent SQLITE_NOMEM WASM out-of-memory and UI freezing by batching and yielding
-          // Increased batch size to 5000 with journal_mode=OFF for maximum speed without memory crashes
-          if (featureCount % 5000 === 0) {
+          stmtNodes.clearBindings();
+          stmtEdges.clearBindings();
+          
+          // Prevent SQLITE_NOMEM WASM out-of-memory by batching frequently to flush dirty pages.
+          // Since journal_mode=OFF, disk I/O is instant, so we can commit every 500 features.
+          if (featureCount % 500 === 0) {
             db.exec('COMMIT;');
             self.postMessage({ type: 'CHUNK_PROGRESS', payload: { current: featureCount, total: geoJson.features.length } });
             await new Promise(r => setTimeout(r, 0)); // Yield to event loop to flush IPC message!
