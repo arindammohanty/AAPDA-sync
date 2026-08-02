@@ -116,11 +116,11 @@ self.onmessage = (event: MessageEvent) => {
               
               const finalWeight = dist * multiplier;
 
-              stmtEdges.bind([nodeId, targetId, finalWeight, isHighway, isFloodRisk]);
+              stmtEdges.bind([nodeId, targetId, finalWeight, isHighway ? 1 : 0, isFloodRisk ? 1 : 0]);
               stmtEdges.step();
               stmtEdges.reset();
 
-              stmtEdges.bind([targetId, nodeId, finalWeight, isHighway, isFloodRisk]);
+              stmtEdges.bind([targetId, nodeId, finalWeight, isHighway ? 1 : 0, isFloodRisk ? 1 : 0]);
               stmtEdges.step();
               stmtEdges.reset();
               

@@ -105,8 +105,8 @@ export default function App() {
         setMapLoadProgress(Math.floor((current / total) * 100));
       } else if (type === 'CHUNK_ERROR') {
         notify(`Map Ingestion Failed: ${payload}`, 'warning');
-        // Stop the loading state
-        setBootState('CHECKING_SERVER'); 
+        // Stop the loading state but don't soft-lock the UI in checking_server
+        setBootState('PROMPT_OFF_GRID'); 
       } else if (type === 'BBOX_GRAPH_RESULT') {
         if (pathWorker.current) {
           pathWorker.current.postMessage({ type: 'GRAPH_BUILT', payload: { adjacencyList: payload.adjacencyList } });
