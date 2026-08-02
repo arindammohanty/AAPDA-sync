@@ -45,7 +45,6 @@ export default function App() {
   const [isOffGridModalOpen, setIsOffGridModalOpen] = useState(false);
   const [bootState, setBootState] = useState<'CHECKING_MAP' | 'LOADING_MAP' | 'CHECKING_SERVER' | 'PROMPT_OFF_GRID' | 'READY'>('CHECKING_MAP');
   const [isRouting, setIsRouting] = useState(false);
-  const [loadedTiles, setLoadedTiles] = useState<Set<string>>(new Set());
   
   // Custom Targeting State
   const [isTargetingMode, setIsTargetingMode] = useState(false);
@@ -86,7 +85,7 @@ export default function App() {
       const { type, payload } = e.data;
       if (type === 'DB_READY') {
         setBootState('LOADING_MAP');
-        fetch('/national_backbone.geojson') // National Highways Backbone
+        fetch('/odisha_state_graph.geojson') // Massive State-Wide Graph
           .then(res => res.json())
           .then((data) => {
             sqliteWorker.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
@@ -94,7 +93,7 @@ export default function App() {
       } else if (type === 'CHUNK_LOADED') {
         if (!hasBootedRef.current) {
           hasBootedRef.current = true;
-          notify(`Map backbone loaded.`, 'success');
+          notify(`Map backbone loaded: ${payload.nodeCount} nodes.`, 'success');
           setBootState('CHECKING_SERVER');
           setTimeout(() => {
             setBootState(prev => prev === 'CHECKING_SERVER' ? 'PROMPT_OFF_GRID' : prev);
@@ -241,47 +240,6 @@ export default function App() {
     }
   }, [activeRoutingRequest, victims, userLocation, anomalies, breadcrumbs, drawnFeatures]);
 
-  const handleMapPan = useCallback((bounds: { minLon: number, minLat: number, maxLon: number, maxLat: number }) => {
-    if (!sqliteWorkerRef.current) return;
-    
-    const minLatGrid = Math.floor(bounds.minLat * 10) / 10;
-    const maxLatGrid = Math.floor(bounds.maxLat * 10) / 10;
-    const minLonGrid = Math.floor(bounds.minLon * 10) / 10;
-    const maxLonGrid = Math.floor(bounds.maxLon * 10) / 10;
-    
-    const newTilesToLoad: string[] = [];
-    
-    // Cap iterations to avoid huge loops if zoomed way out
-    if (maxLatGrid - minLatGrid > 2 || maxLonGrid - minLonGrid > 2) return;
-
-    for (let lat = minLatGrid; lat <= maxLatGrid + 0.05; lat += 0.1) {
-      for (let lon = minLonGrid; lon <= maxLonGrid + 0.05; lon += 0.1) {
-        const tileKey = `${lat.toFixed(1)}_${lon.toFixed(1)}`;
-        newTilesToLoad.push(tileKey);
-      }
-    }
-    
-    setLoadedTiles(prev => {
-      const updated = new Set(prev);
-      let didFetch = false;
-      newTilesToLoad.forEach(tileKey => {
-        if (!updated.has(tileKey)) {
-          updated.add(tileKey);
-          didFetch = true;
-          fetch(`/routing_tiles/${tileKey}.geojson`)
-            .then(res => {
-              if (res.ok) return res.json();
-              throw new Error('Tile not found');
-            })
-            .then(data => {
-              sqliteWorkerRef.current?.postMessage({ type: 'LOAD_MAP_CHUNK', payload: data });
-            })
-            .catch(() => {});
-        }
-      });
-      return didFetch ? updated : prev; // avoid unnecessary re-renders
-    });
-  }, []);
 
   // Breadcrumb Trail Recording Logic
   useEffect(() => {
@@ -546,7 +504,6 @@ export default function App() {
           onBroadcastTrail={handleBroadcastTrail}
           onEnableManualLocation={() => setIsSettingManualLocation(true)}
           isManualLocation={isManualLocationSet}
-          onMapPan={handleMapPan}
         />
       </div>
 
@@ -747,16 +704,15 @@ export default function App() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
               </span>
             </h3>
-            <p className="text-[10px] text-gray-500 mb-3">Dynamically tracking visible region routing meshes.</p>
-            <div className="text-xs font-mono bg-white border border-gray-200 p-2 rounded text-gray-600 mb-3 text-center">
-              {loadedTiles.size} Tiles Cached Locally
-            </div>
+            <p className="text-[10px] text-gray-500 mb-3">AapdaSync relies on Origin Private File System for persisting massive local routing meshes.</p>
             <button 
-              onClick={() => notify('Background auto-tiler is managing OPFS storage transparently.', 'info')}
+              onClick={() => {
+                notify('Manual map ingestion disabled. State-wide chunk active.', 'info');
+              }}
               className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 text-xs font-bold py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              Auto-Routing Active
+              State-Wide Routing Active
             </button>
           </div>
 

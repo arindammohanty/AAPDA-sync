@@ -46,7 +46,7 @@ export default defineConfig({
       injectManifest: {
         // Enforce strict offline caching of all UI and Map assets
         globPatterns: ['**/*.{html,js,css,wasm,png,svg,json,geojson}'],
-        maximumFileSizeToCacheInBytes: 50 * 1024 * 1024 // 50MB to allow massive map chunks
+        maximumFileSizeToCacheInBytes: 150 * 1024 * 1024 // 150MB to allow massive state-wide map chunks
       },
       manifest: {
         name: 'AapdaSync Response Node',

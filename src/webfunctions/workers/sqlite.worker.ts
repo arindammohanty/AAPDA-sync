@@ -28,8 +28,11 @@ async function initDb() {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
     
+    // Use a versioned db name to force re-initialization when schema/data changes
+    const DB_NAME = '/aapda_routing_v6.sqlite3';
+    
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v5.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb(DB_NAME);
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
