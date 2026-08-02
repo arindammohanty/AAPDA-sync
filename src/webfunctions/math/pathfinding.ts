@@ -227,7 +227,32 @@ export class PathGraph {
       }
     }
 
-    return null; // No path found
+    // Tactical Fallback: If the graph is isolated (disconnected OSM roads), 
+    // find the node we DID reach that is closest to the destination, and go off-road from there.
+    if (gScore.size > 0) {
+      let closestReachedKey = startKey;
+      let minDistanceToEnd = Infinity;
+      
+      for (const key of gScore.keys()) {
+        const [lon, lat] = key.split(',').map(Number);
+        const dist = getDistance([lon, lat], endRaw);
+        if (dist < minDistanceToEnd) {
+          minDistanceToEnd = dist;
+          closestReachedKey = key;
+        }
+      }
+      
+      const partialStats = this.reconstructPath(cameFrom, closestReachedKey);
+      // Append the final off-road vector directly to the target
+      partialStats.path.push(endRaw);
+      const offRoadDist = getDistance(partialStats.path[partialStats.path.length - 2], endRaw);
+      partialStats.totalDistance += offRoadDist;
+      partialStats.travelTimeMinutes += Math.ceil((offRoadDist / (15 * (1000 / 3600))) / 60); // assume 15km/h off-road
+      
+      return partialStats;
+    }
+
+    return null; // Absolute failure (should theoretically never hit if start node exists)
   }
 
   private reconstructPath(cameFrom: Map<string, string>, currentKey: string): RouteStats {
