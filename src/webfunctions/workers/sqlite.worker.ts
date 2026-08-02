@@ -27,9 +27,8 @@ async function initDb() {
   try {
     const sqlite3 = await sqlite3InitModule();
     sqlite3Ref = sqlite3;
-    
     if ((sqlite3 as any).opfs) {
-      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v6.sqlite3');
+      db = new (sqlite3 as any).oo1.OpfsDb('/aapdasync_v7.sqlite3');
       console.log('[SQLite OPFS] Mounted resilient storage.');
     } else {
       db = await initializeFallbackDb(sqlite3);
@@ -80,8 +79,11 @@ self.onmessage = (event: MessageEvent) => {
       
       let nodeCount = 0;
       let edgeCount = 0;
+      let featureCount = 0;
 
       geoJson.features.forEach(feature => {
+        featureCount++;
+        
         const coords = feature.geometry.coordinates as [number, number][];
         const highwayType = feature.properties?.highway || 'unknown';
         const isHighway = ['motorway', 'trunk', 'primary'].includes(highwayType);
@@ -106,11 +108,10 @@ self.onmessage = (event: MessageEvent) => {
             const targetId = `${nLon},${nLat}`;
             
             const dist = getDistance(lon, lat, nLon, nLat);
-            const isFloodRisk = false; // Disabled synthetic flood risk for real roads
+            const isFloodRisk = false; 
             
             const finalWeight = dist * multiplier;
 
-            // Undirected graph insertion
             db.exec({
               sql: 'INSERT OR IGNORE INTO routing_edges (source, target, weight, is_highway, is_flood_risk) VALUES (?, ?, ?, ?, ?)',
               bind: [nodeId, targetId, finalWeight, isHighway, isFloodRisk]
@@ -121,6 +122,12 @@ self.onmessage = (event: MessageEvent) => {
             });
             edgeCount++;
           }
+        }
+        
+        // Prevent SQLITE_NOMEM WASM out-of-memory by batching transactions
+        if (featureCount % 1000 === 0) {
+          db.exec('COMMIT;');
+          db.exec('BEGIN TRANSACTION;');
         }
       });
       
